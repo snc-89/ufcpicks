@@ -32,7 +32,7 @@ except KeyError:
     }
     connection = pool.SimpleConnectionPool(1,20, **params)
     CHANNEL = 811176962172649472
-    
+
 
 conn = connection.getconn()
 with conn.cursor() as cursor:
@@ -63,7 +63,7 @@ async def on_ready():
     opening_post.start()
     print(f'{client.user} has logged in')
     channel = await client.fetch_channel(CHANNEL)
-    await channel.send(file=File(screenshot('/home/simon/repos/python/ufc_picks/result_table.html'), "results.png"))
+    await channel.send(file=File(screenshot('result_table.html'), "results.png"))
 
 
 def screenshot(html_file):
