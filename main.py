@@ -17,10 +17,12 @@ client = commands.Bot(command_prefix='!')
 with open('token.txt', 'r') as f:
     token = f.read()
 
+CHANNEL = None
 DATABASE_URL = None
 try:
     DATABASE_URL = os.environ['DATABASE_URL']
     connection = pool.SimpleConnectionPool(1,20, DATABASE_URL, sslmode='require')
+    CHANNEL = 813751690515185685
 except KeyError:
     params = {
         'database':'heem_picks',
@@ -29,6 +31,7 @@ except KeyError:
         'password':'abc'
     }
     connection = pool.SimpleConnectionPool(1,20, **params)
+    CHANNEL = 811176962172649472
 
 conn = connection.getconn()
 with conn.cursor() as cursor:
@@ -58,7 +61,7 @@ connection.putconn(conn)
 async def on_ready():
     opening_post.start()
     print(f'{client.user} has logged in')
-    channel = await client.fetch_channel(813751690515185685)
+    channel = await client.fetch_channel(CHANNEL)
     await channel.send(file=File(screenshot('/home/simon/repos/python/ufc_picks/result_table.html'), "results.png"))
 
 
@@ -96,7 +99,7 @@ async def opening_post():
     current_time = datetime.now()
     fight_start_time = datetime.strptime(card_details['start time'], "%Y-%m-%d %H:%M:%S")
     if current_time >= (fight_start_time - timedelta(hours=48)):
-        ctx = await client.fetch_channel(813751690515185685)
+        ctx = await client.fetch_channel(CHANNEL)
         card_title = card_details['title']
         bouts = post_bouts.get_bouts("vs.", card_details['wiki title'])
         await ctx.send(f"UFC PICKS: {card_title}\n\nreact to the following messages with :one: to pick the first fighter, and react with :two: to pick the second fighter. you have until the prelims start to get your picks in. picks are not final until then. if you select both, your pick will be void.")
@@ -178,7 +181,7 @@ async def detect_change():
         card_details = json.load(f)
     fight_results = post_bouts.get_bouts("def.", card_details['wiki title'])
     if len(fight_results) > card_details['fights ended']:
-        channel = await client.fetch_channel(813751690515185685)
+        channel = await client.fetch_channel(CHANNEL)
         winner, loser = fight_results[0].strip().split(' def. ')
         card_details['fights ended'] += 1
         with open('card_details.json', 'w') as f:
@@ -228,7 +231,7 @@ async def take_picks():
     if current_time < fight_start_time and current_time >= (fight_start_time - timedelta(hours=1)):
         card_title = card_details['title']
         message_ids = card_details['pick messages']
-        ctx = await client.fetch_channel(813751690515185685)
+        ctx = await client.fetch_channel(CHANNEL)
         for message_id in message_ids:    
             message = await ctx.fetch_message(int(message_id))
             bout = message.content[5:-5].strip()
