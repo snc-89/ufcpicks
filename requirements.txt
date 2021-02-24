@@ -3,3 +3,4 @@ pytz
 psycopg2
 selenium
 requests
+pandas
