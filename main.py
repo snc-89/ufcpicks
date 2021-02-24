@@ -32,6 +32,7 @@ except KeyError:
     }
     connection = pool.SimpleConnectionPool(1,20, **params)
     CHANNEL = 811176962172649472
+    
 
 conn = connection.getconn()
 with conn.cursor() as cursor:
