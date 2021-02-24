@@ -81,8 +81,8 @@ def screenshot(html_file):
 
     options.add_argument("--disable-infobars")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-browser-side-navigation")
-    options.add_argument("--disable-features=VizDisplayCompositor")
+    # options.add_argument("--disable-browser-side-navigation")
+    # options.add_argument("--disable-features=VizDisplayCompositor")
     options.binary_location = GOOGLE_CHROME_PATH
     browser = webdriver.Chrome(options=options, executable_path=CHROMEDRIVER_PATH)
     browser.get(f"file://{html_file}")
