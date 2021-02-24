@@ -1,3 +1,4 @@
+import time
 from discord.ext import commands, tasks
 from discord import File
 import os
@@ -81,8 +82,8 @@ def screenshot(html_file):
 
     options.add_argument("--disable-infobars")
     options.add_argument("--disable-dev-shm-usage")
-    # options.add_argument("--disable-browser-side-navigation")
-    # options.add_argument("--disable-features=VizDisplayCompositor")
+    options.add_argument("--disable-browser-side-navigation")
+    options.add_argument("--disable-features=VizDisplayCompositor")
     options.binary_location = GOOGLE_CHROME_PATH
     browser = webdriver.Chrome(options=options, executable_path=CHROMEDRIVER_PATH)
     browser.get(f"file://{html_file}")
@@ -113,7 +114,7 @@ async def opening_post():
             await message.add_reaction('2️⃣')
             card_details['pick messages'].append(message.id)
         with open('card_details.json', 'w') as f:
-            json.load(card_details, f)
+            json.dump(card_details, f)
         opening_post.stop()
         take_picks.start()
         print("transitioning to take_picks")
