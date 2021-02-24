@@ -64,7 +64,7 @@ async def on_ready():
     opening_post.start()
     print(f'{client.user} has logged in')
     channel = await client.fetch_channel(CHANNEL)
-    await channel.send(file=File(screenshot('result_table.html'), "results.png"))
+    await channel.send(file=File(screenshot(os.path.abspath('result_table.html')), "results.png"))
 
 
 def screenshot(html_file):
