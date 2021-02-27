@@ -276,7 +276,7 @@ async def detect_change():
         conn.commit()
         connection.putconn(conn)
         update_html(winner, loser, card_details['html'])
-        await channel.send(screenshot('result_table.html'), 'results.png')
+        await channel.send(screenshot(os.path.abspath('result_table.html')), 'results.png')
 
 
 @tasks.loop(seconds=3600)
