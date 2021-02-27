@@ -1,6 +1,6 @@
 import time
 from discord.ext import commands, tasks
-from discord import File
+from discord import File, Embed
 import os
 from psycopg2 import pool
 import psycopg2.extras
@@ -312,6 +312,9 @@ async def take_picks():
         update_column("current_state", "detect_change")
         take_picks.stop()
         detect_change.start()
+        ctx = await client.fetch_channel(CHANNEL)
+        embed=Embed(title="picks taken", description="enjoy the fights")
+        await ctx.send(embed=embed)
         print(f'\n{"transitioning to detect_change"}\n')
 
 
