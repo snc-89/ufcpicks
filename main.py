@@ -1,11 +1,10 @@
-import time
+import base64
 from discord.ext import commands, tasks
 from discord import File, Embed
 import os
 from psycopg2 import pool
 import psycopg2.extras
 import post_bouts
-import json
 from datetime import datetime, timedelta
 import pandas as pd
 import re
@@ -67,7 +66,7 @@ async def on_ready():
     # await channel.send(file=File(screenshot(os.path.abspath('result_table.html')), "results.png"))
 
 
-def screenshot(html_file):
+def screenshot(html_content):
     if os.environ['HOME'] != '/home/simon':
         GOOGLE_CHROME_PATH = '/app/.apt/usr/bin/google-chrome'
         CHROMEDRIVER_PATH = '/app/.chromedriver/bin/chromedriver'
@@ -84,7 +83,9 @@ def screenshot(html_file):
     options.add_argument("--disable-features=VizDisplayCompositor")
     options.binary_location = GOOGLE_CHROME_PATH
     browser = webdriver.Chrome(options=options, executable_path=CHROMEDRIVER_PATH)
-    browser.get(f"file://{html_file}")
+    browser.set_window_size(1600,900)
+    html_content = base64.b64encode(html_content.encode('utf-8')).decode()
+    browser.get(f"data:text/html;base64,{html_content}")
     S = lambda X: browser.execute_script('return document.body.parentNode.scroll'+X)
     browser.set_window_size(S('Width'),S('Height'))
     full_page = browser.find_element_by_tag_name('body')
@@ -103,36 +104,6 @@ def get_card_details():
     if card_details['pick_messages']:
         card_details['pick_messages'] = [int(x) for x in card_details['pick_messages'].split()]
     return card_details
-
-
-@tasks.loop(seconds=43200)
-async def opening_post():
-    print(f"{datetime.now()}    opening_post")
-    card_details = get_card_details()
-    if card_details['current_state'] != "opening_post":
-        opening_post.stop()
-        take_picks.start()
-        return
-    current_time = datetime.now()
-    fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
-    if current_time >= (fight_start_time - timedelta(hours=48)):
-        ctx = await client.fetch_channel(CHANNEL)
-        card_title = card_details['title']
-        bouts = post_bouts.get_bouts("vs.", card_details['wiki_title'])
-        await ctx.send(f"UFC PICKS: {card_title}\n\nreact to the following messages with :one: to pick the first fighter, and react with :two: to pick the second fighter. you have until the prelims start to get your picks in. picks are not final until then. if you select both, your pick will be void.")
-        card_details['pick_messages'] = []
-        for bout in bouts:
-            fighter1, fighter2 = bout.split(" vs. ")
-            string = f":one: {fighter1} vs. {fighter2} :two:"
-            message = await ctx.send(string)
-            await message.add_reaction('1️⃣')
-            await message.add_reaction('2️⃣')
-            card_details['pick_messages'].append(message.id)
-        update_column("pick_messages", card_details['pick_messages'])
-        update_column("current_state", "take_picks")
-        opening_post.stop()
-        take_picks.start()
-        print("\ntransitioning to take_picks\n")
         
 
 def insert_picks(card_title, bout, users, fighter):
@@ -219,8 +190,76 @@ def update_html(winner, loser, html):
     html = re.sub(f"<td>{loser}</td>", f"<td class='bg-danger'>{loser}</td>", html)
     html = re.sub(f"<td>{winner}</td>", f"<td class='bg-success'>{winner}</td>", html)
     update_column("html", html)
-    with open('result_table.html', 'w') as f:
-        f.write(html)
+    return html
+
+
+@tasks.loop(seconds=43200)
+async def opening_post():
+    print(f"{datetime.now()}    opening_post")
+    card_details = get_card_details()
+    if card_details['current_state'] != "opening_post":
+        opening_post.stop()
+        take_picks.start()
+        return
+    current_time = datetime.now()
+    fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
+    if current_time >= (fight_start_time - timedelta(hours=48)):
+        ctx = await client.fetch_channel(CHANNEL)
+        card_title = card_details['title']
+        bouts = post_bouts.get_bouts("vs.", card_details['wiki_title'])
+        await ctx.send(f"UFC PICKS: {card_title}\n\nreact to the following messages with :one: to pick the first fighter, and react with :two: to pick the second fighter. you have until the prelims start to get your picks in. picks are not final until then. if you select both, your pick will be void.")
+        card_details['pick_messages'] = []
+        for bout in bouts:
+            fighter1, fighter2 = bout.split(" vs. ")
+            string = f":one: {fighter1} vs. {fighter2} :two:"
+            message = await ctx.send(string)
+            await message.add_reaction('1️⃣')
+            await message.add_reaction('2️⃣')
+            card_details['pick_messages'].append(message.id)
+        update_column("pick_messages", card_details['pick_messages'])
+        update_column("current_state", "take_picks")
+        opening_post.stop()
+        take_picks.start()
+        print("\ntransitioning to take_picks\n")
+
+
+@tasks.loop(seconds=3600)
+async def take_picks():
+    print(f"{datetime.now()}    take_picks")
+    card_details = get_card_details()
+    if card_details['current_state'] != "take_picks":
+        take_picks.stop()
+        detect_change.start()
+        return
+    current_time = datetime.now()
+    fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
+    if current_time < fight_start_time and current_time >= (fight_start_time - timedelta(hours=1)):
+        card_title = card_details['title']
+        message_ids = card_details['pick_messages']
+        ctx = await client.fetch_channel(CHANNEL)
+        for message_id in message_ids:    
+            message = await ctx.fetch_message(int(message_id))
+            bout = message.content[5:-5].strip()
+            fighter1, fighter2 = bout.split(" vs. ")
+            for reaction in message.reactions:
+                if reaction.emoji == '1️⃣':
+                    one_react_users = list(await reaction.users().flatten())
+                elif reaction.emoji == '2️⃣':
+                    two_react_users = list(await reaction.users().flatten())
+            in_both_lists = set(one_react_users) & set(two_react_users)
+            one_react_users = list(set(one_react_users) - in_both_lists)
+            two_react_users = list(set(two_react_users) - in_both_lists)
+            insert_picks(card_title, bout, one_react_users, fighter1)
+            insert_picks(card_title, bout, two_react_users, fighter2)
+        html = make_html_table(card_details['title'])
+        update_column("html", html)
+        update_column("current_state", "detect_change")
+        ctx = await client.fetch_channel(CHANNEL)
+        embed=Embed(title="picks taken", description="enjoy the fights")
+        await ctx.send(embed=embed)
+        take_picks.stop()
+        detect_change.start()
+        print(f'\n{"transitioning to detect_change"}\n')
 
 
 @tasks.loop(seconds=300)
@@ -260,8 +299,8 @@ async def detect_change():
                 await channel.send(f"LOSERS: {goofs[:-2]}")
             else:
                 await channel.send(f"EVENT OVER. LOSERS: {goofs[:-2]}")
-                update_html(winner, loser, card_details['html'])
-                await channel.send(screenshot(os.path.abspath('result_table.html')), 'results.png')
+                html = update_html(winner, loser, card_details['html'])
+                await channel.send(file=File(screenshot(html), 'results.png'))
                 next_card = post_bouts.get_next_card(card_details['wiki_title'])
                 next_card['html'] = ""
                 next_card['pick_messages'] = ""
@@ -272,47 +311,13 @@ async def detect_change():
                 print("\ntransitioning to opening post\n")
         conn.commit()
         connection.putconn(conn)
-        update_html(winner, loser, card_details['html'])
-        await channel.send(screenshot(os.path.abspath('result_table.html')), 'results.png')
-
-
-@tasks.loop(seconds=3600)
-async def take_picks():
-    print(f"{datetime.now()}    take_picks")
-    card_details = get_card_details()
-    if card_details['current_state'] != "take_picks":
-        take_picks.stop()
-        detect_change.start()
-        return
-    current_time = datetime.now()
-    fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
-    if current_time < fight_start_time and current_time >= (fight_start_time - timedelta(hours=1)):
-        card_title = card_details['title']
-        message_ids = card_details['pick_messages']
-        ctx = await client.fetch_channel(CHANNEL)
-        for message_id in message_ids:    
-            message = await ctx.fetch_message(int(message_id))
-            bout = message.content[5:-5].strip()
-            fighter1, fighter2 = bout.split(" vs. ")
-            for reaction in message.reactions:
-                if reaction.emoji == '1️⃣':
-                    one_react_users = list(await reaction.users().flatten())
-                elif reaction.emoji == '2️⃣':
-                    two_react_users = list(await reaction.users().flatten())
-            in_both_lists = set(one_react_users) & set(two_react_users)
-            one_react_users = list(set(one_react_users) - in_both_lists)
-            two_react_users = list(set(two_react_users) - in_both_lists)
-            insert_picks(card_title, bout, one_react_users, fighter1)
-            insert_picks(card_title, bout, two_react_users, fighter2)
-        html = make_html_table(card_details['title'])
-        update_column("html", html)
-        update_column("current_state", "detect_change")
-        take_picks.stop()
-        detect_change.start()
-        ctx = await client.fetch_channel(CHANNEL)
-        embed=Embed(title="picks taken", description="enjoy the fights")
-        await ctx.send(embed=embed)
-        print(f'\n{"transitioning to detect_change"}\n')
+        html = update_html(winner, loser, card_details['html'])
+        await channel.send(file=File(screenshot(html), 'results.png'))
 
 
 client.run(token)
+# with open('result_table.html', 'r') as f:
+#     html = f.read()
+
+# with open('pic.png', 'wb') as f:
+#     f.write(screenshot(html).getbuffer())
