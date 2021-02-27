@@ -63,8 +63,8 @@ connection.putconn(conn)
 async def on_ready():
     opening_post.start()
     print(f'{client.user} has logged in')
-    channel = await client.fetch_channel(CHANNEL)
-    await channel.send(file=File(screenshot(os.path.abspath('result_table.html')), "results.png"))
+    # channel = await client.fetch_channel(CHANNEL)
+    # await channel.send(file=File(screenshot(os.path.abspath('result_table.html')), "results.png"))
 
 
 def screenshot(html_file):
@@ -93,31 +93,50 @@ def screenshot(html_file):
     return BytesIO(full_page.screenshot_as_png)
 
 
+def get_card_details():
+    conn = connection.getconn()
+    with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
+        cursor.execute("""
+            select * from information where id = 1 limit 1;
+        """)
+        card_details = cursor.fetchone()
+    conn.commit()
+    connection.putconn(conn)
+    if card_details['pick_messages']:
+        card_details['pick_messages'] = [int(x) for x in card_details['pick_messages'].split()]
+    return card_details
+
+
+
+
 @tasks.loop(seconds=43200)
 async def opening_post():
     print(f"{datetime.now()}    opening_post")
-    with open('card_details.json', 'r') as f:
-        card_details = json.load(f)
+    card_details = get_card_details()
+    if card_details['current_state'] != "opening_post":
+        opening_post.stop()
+        take_picks.start()
+        return
     current_time = datetime.now()
-    fight_start_time = datetime.strptime(card_details['start time'], "%Y-%m-%d %H:%M:%S")
+    fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
     if current_time >= (fight_start_time - timedelta(hours=48)):
         ctx = await client.fetch_channel(CHANNEL)
         card_title = card_details['title']
-        bouts = post_bouts.get_bouts("vs.", card_details['wiki title'])
+        bouts = post_bouts.get_bouts("vs.", card_details['wiki_title'])
         await ctx.send(f"UFC PICKS: {card_title}\n\nreact to the following messages with :one: to pick the first fighter, and react with :two: to pick the second fighter. you have until the prelims start to get your picks in. picks are not final until then. if you select both, your pick will be void.")
-        card_details['pick messages'] = []
+        card_details['pick_messages'] = []
         for bout in bouts:
             fighter1, fighter2 = bout.split(" vs. ")
             string = f":one: {fighter1} vs. {fighter2} :two:"
             message = await ctx.send(string)
             await message.add_reaction('1️⃣')
             await message.add_reaction('2️⃣')
-            card_details['pick messages'].append(message.id)
-        with open('card_details.json', 'w') as f:
-            json.dump(card_details, f)
+            card_details['pick_messages'].append(message.id)
+        update_column("pick_messages", card_details['pick_messages'])
+        update_column("current_state", "take_picks")
         opening_post.stop()
         take_picks.start()
-        print("transitioning to take_picks")
+        print("\ntransitioning to take_picks\n")
         
 
 def insert_picks(card_title, bout, users, fighter):
@@ -167,11 +186,44 @@ def make_html_table(card_title):
         return html
 
 
-def update_html(winner, loser):
-    with open('result_table.html', 'r') as f:
-        html = f.read()
+def update_column(column, value):
+    if column == "pick_messages":
+        value = ' '.join(str(e) for e in value)
+    conn = connection.getconn()
+    sql = f"""
+            update information
+            set {column} = %s
+            where id = 1    
+        """
+    with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
+        cursor.execute(sql, (value, ))
+    conn.commit()
+    connection.putconn(conn)
+
+
+def update_information(card_details):
+    conn = connection.getconn()
+    with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
+        cursor.execute("""
+            update information
+            set
+                title = %(title)s,
+                wiki_title = %(wiki_title)s,
+                num_fights = %(num_fights)s,
+                fights_ended = %(fights_ended)s,
+                start_time = %(start_time)s,
+                current_state = %(current_state)s,
+                pick_messages = %(pick_messages)s,
+                html = %(html)s
+            where id = 1
+        """)
+    conn.commit()
+    connection.putconn(conn)
+
+def update_html(winner, loser, html):
     html = re.sub(f"<td>{loser}</td>", f"<td class='bg-danger'>{loser}</td>", html)
     html = re.sub(f"<td>{winner}</td>", f"<td class='bg-success'>{winner}</td>", html)
+    update_column("html", html)
     with open('result_table.html', 'w') as f:
         f.write(html)
 
@@ -179,15 +231,17 @@ def update_html(winner, loser):
 @tasks.loop(seconds=300)
 async def detect_change():
     print(f"{datetime.now()}    detect change")
-    with open('card_details.json', 'r') as f:
-        card_details = json.load(f)
-    fight_results = post_bouts.get_bouts("def.", card_details['wiki title'])
-    if len(fight_results) > card_details['fights ended']:
+    card_details = get_card_details()
+    if card_details['current_state'] != "detect_change":
+        detect_change.stop()
+        opening_post.start()
+        return
+    fight_results = post_bouts.get_bouts("def.", card_details['wiki_title'])
+    if len(fight_results) > card_details['fights_ended']:
         channel = await client.fetch_channel(CHANNEL)
         winner, loser = fight_results[0].strip().split(' def. ')
-        card_details['fights ended'] += 1
-        with open('card_details.json', 'w') as f:
-            json.dump(card_details, f)
+        card_details['fights_ended'] += 1
+        update_column("fights_ended", card_details['fights_ended'])
         conn = connection.getconn()
         with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
             cursor.execute("""
@@ -207,32 +261,37 @@ async def detect_change():
             goofs = ""
             for user in losers:
                 goofs += f"{user['username']}, "
-            if card_details['fights ended'] != card_details['num fights']:    
+            if card_details['fights_ended'] != card_details['num_fights']:    
                 await channel.send(f"LOSERS: {goofs[:-2]}")
             else:
                 await channel.send(f"EVENT OVER. LOSERS: {goofs[:-2]}")
-                next_card = post_bouts.get_next_card(card_details['wiki title'])
-                with open('card_details.json', 'w') as f:
-                    json.dump(next_card, f)
+                next_card = post_bouts.get_next_card(card_details['wiki_title'])
+                next_card['html'] = ""
+                next_card['pick_messages'] = ""
+                next_card['current_state'] = "opening_post"
+                update_information(next_card)
+                detect_change.stop()
+                opening_post.start()
+                print("\ntransitioning to opening post\n")
         conn.commit()
         connection.putconn(conn)
-        update_html(winner, loser)
+        update_html(winner, loser, card_details['html'])
         await channel.send(screenshot('result_table.html'), 'results.png')
-        detect_change.stop()
-        opening_post.start()
-        print("transitioning to opening post")
 
 
 @tasks.loop(seconds=3600)
 async def take_picks():
     print(f"{datetime.now()}    take_picks")
-    with open('card_details.json', 'r') as f:
-        card_details = json.load(f)
+    card_details = get_card_details()
+    if card_details['current_state'] != "take_picks":
+        take_picks.stop()
+        detect_change.start()
+        return
     current_time = datetime.now()
-    fight_start_time = datetime.strptime(card_details['start time'], "%Y-%m-%d %H:%M:%S")
+    fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
     if current_time < fight_start_time and current_time >= (fight_start_time - timedelta(hours=1)):
         card_title = card_details['title']
-        message_ids = card_details['pick messages']
+        message_ids = card_details['pick_messages']
         ctx = await client.fetch_channel(CHANNEL)
         for message_id in message_ids:    
             message = await ctx.fetch_message(int(message_id))
@@ -249,8 +308,8 @@ async def take_picks():
             insert_picks(card_title, bout, one_react_users, fighter1)
             insert_picks(card_title, bout, two_react_users, fighter2)
         html = make_html_table(card_details['title'])
-        with open('result_table.html', 'w') as f:
-            f.write(html)
+        update_column("html", html)
+        update_column("current_state", "detect_change")
         take_picks.stop()
         detect_change.start()
         print(f'\n{"transitioning to detect_change"}\n')

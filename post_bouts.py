@@ -45,10 +45,10 @@ def get_next_card(last_card_title):
 
     card_json = {
         'title': card_title,
-        'wiki title': card_title.replace(' ', '_'),
-        'num fights': len(bouts),
-        'start time': date,
-        'fights ended': 0
+        'wiki_title': card_title.replace(' ', '_'),
+        'num_fights': len(bouts),
+        'start_time': date,
+        'fights_ended': 0,
     }
 
     return card_json
