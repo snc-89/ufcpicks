@@ -74,12 +74,10 @@ def screenshot(html_file):
     else:
         GOOGLE_CHROME_PATH = '/usr/bin/google-chrome'
         CHROMEDRIVER_PATH = '/usr/bin/chromedriver'
-
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--disable-gpu')
     options.add_argument('--no-sandbox')
-
     options.add_argument("--disable-infobars")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-browser-side-navigation")
@@ -105,8 +103,6 @@ def get_card_details():
     if card_details['pick_messages']:
         card_details['pick_messages'] = [int(x) for x in card_details['pick_messages'].split()]
     return card_details
-
-
 
 
 @tasks.loop(seconds=43200)
@@ -153,37 +149,36 @@ def insert_picks(card_title, bout, users, fighter):
 
 
 def make_html_table(card_title):
-        conn = connection.getconn()
-        with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
-            cursor.execute("""
-                select username, pick, bout from picks where card = %s;
-            """, (card_title,))
-            data = cursor.fetchall()
-        conn.commit()
-        connection.putconn(conn)
+    conn = connection.getconn()
+    with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
+        cursor.execute("""
+            select username, pick, bout from picks where card = %s;
+        """, (card_title,))
+        data = cursor.fetchall()
+    conn.commit()
+    connection.putconn(conn)
 
-        foobar = {}
-        for row in data:
-            if row['username'] not in foobar:
-                foobar[row['username']] = {}
-            foobar[row['username']][row['bout']] = row['pick']
+    foobar = {}
+    for row in data:
+        if row['username'] not in foobar:
+            foobar[row['username']] = {}
+        foobar[row['username']][row['bout']] = row['pick']
 
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous">
-        <style>
-        </style>
-        </head>
-        <body>
-        {pd.DataFrame(foobar).T.to_html()}
-        </body>
-        </html>
-        """
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous">
+<style>
+</style>
+</head>
+<body>
+{pd.DataFrame(foobar).T.to_html()}
+</body>
+</html>"""
 
-        html = re.sub("\"dataframe\"", "'table'", html)
-        return html
+    html = re.sub("\"dataframe\"", "'table'", html)
+    return html
 
 
 def update_column(column, value):
@@ -216,7 +211,7 @@ def update_information(card_details):
                 pick_messages = %(pick_messages)s,
                 html = %(html)s
             where id = 1
-        """)
+        """, card_details)
     conn.commit()
     connection.putconn(conn)
 
@@ -265,6 +260,8 @@ async def detect_change():
                 await channel.send(f"LOSERS: {goofs[:-2]}")
             else:
                 await channel.send(f"EVENT OVER. LOSERS: {goofs[:-2]}")
+                update_html(winner, loser, card_details['html'])
+                await channel.send(screenshot(os.path.abspath('result_table.html')), 'results.png')
                 next_card = post_bouts.get_next_card(card_details['wiki_title'])
                 next_card['html'] = ""
                 next_card['pick_messages'] = ""
@@ -319,4 +316,3 @@ async def take_picks():
 
 
 client.run(token)
-
