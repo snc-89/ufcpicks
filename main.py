@@ -186,6 +186,7 @@ def update_information(card_details):
     conn.commit()
     connection.putconn(conn)
 
+
 def update_html(winner, loser, html):
     html = re.sub(f"<td>{loser}</td>", f"<td class='bg-danger'>{loser}</td>", html)
     html = re.sub(f"<td>{winner}</td>", f"<td class='bg-success'>{winner}</td>", html)
@@ -262,7 +263,7 @@ async def take_picks():
         print(f'\n{"transitioning to detect_change"}\n')
 
 
-@tasks.loop(seconds=300)
+@tasks.loop(seconds=30)
 async def detect_change():
     print(f"{datetime.now()}    detect change")
     card_details = get_card_details()
@@ -299,8 +300,6 @@ async def detect_change():
                 await channel.send(f"LOSERS: {goofs[:-2]}")
             else:
                 await channel.send(f"EVENT OVER. LOSERS: {goofs[:-2]}")
-                html = update_html(winner, loser, card_details['html'])
-                await channel.send(file=File(screenshot(html), 'results.png'))
                 next_card = post_bouts.get_next_card(card_details['wiki_title'])
                 next_card['html'] = ""
                 next_card['pick_messages'] = ""
