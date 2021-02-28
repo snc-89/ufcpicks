@@ -37,8 +37,10 @@ def get_raw_text(card_title):
 
 def get_next_card(last_card_title):
     last_card_raw_text = get_raw_text(last_card_title)
-    card_title = re.search("\|followingevent= \[\[(.*)\]\]", last_card_raw_text).group(1)
-    next_card_raw_text = get_raw_text(card_title)
+    card_title = re.search("\|followingevent= \[\[(.*)(\|.*)?\]\]", last_card_raw_text).group(1)
+    if re.match("UFC [0-9]{3}", card_title[:7]):
+        card_title = card_title[0:7]
+    next_card_raw_text = get_raw_text(card_title.replace(' ', '_'))
     date = re.search("\|date= \{\{start date\|(.*)\}\}", next_card_raw_text).group(1).replace("|","-")
     date = f"{date} 12:00:00"
     bouts = get_bouts("vs.", card_title.replace(' ', '_'))
@@ -52,3 +54,5 @@ def get_next_card(last_card_title):
     }
 
     return card_json
+
+# print(get_raw_text('UFC_Fight_Night:_Rozenstruik_vs._Gane'))
