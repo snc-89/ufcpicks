@@ -187,11 +187,52 @@ def update_information(card_details):
     connection.putconn(conn)
 
 
-def update_html(winner, loser, html):
+def update_html(winner, loser, html, winners, losers):
     html = re.sub(f"<td>{loser}</td>", f"<td class='bg-danger'>{loser}</td>", html)
     html = re.sub(f"<td>{winner}</td>", f"<td class='bg-success'>{winner}</td>", html)
+    replacement = f"""
+<span>
+<div class="container">
+    <div class="row">
+        <div class="col-md-6">
+            <p>{winners}</p>
+        </div>
+        <div class="col-md-6">
+            <p>{losers}</p>
+        </div>
+    </div>
+</div>
+</span
+    """
+    html = re.sub("<span>.*</span>", replacement, html)
     update_column("html", html)
     return html
+
+
+def update_is_correct(truth_value, title, fighter):
+    conn = connection.getconn()
+    with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
+        cursor.execute(f"""
+            update picks
+            set is_correct = {truth_value}
+            where pick = %s and
+            card = %s
+        """, (fighter, title))
+    connection.putconn(conn)
+
+
+def get_winners_and_losers(card_title):
+    conn = connection.getconn()
+    with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
+        cursor.execute("select distinct(username) from picks where is_correct = %s and card = %s", (False, card_title))
+        losers = {x[0] for x in cursor.fetchall()}
+        cursor.execute("select distinct(username) from picks where card = %s", (card_title,))
+        all_users = {x[0] for x in cursor.fetchall()}
+        winners = list(all_users - losers)
+        losers = list(losers)
+    conn.commit()
+    connection.putconn(conn)
+    return winners, losers
 
 
 @tasks.loop(seconds=43200)
@@ -263,7 +304,8 @@ async def take_picks():
         print(f'\n{"transitioning to detect_change"}\n')
 
 
-@tasks.loop(seconds=30)
+# TODO fix this fucken draw shit 
+@tasks.loop(seconds=300)
 async def detect_change():
     print(f"{datetime.now()}    detect change")
     card_details = get_card_details()
@@ -274,43 +316,43 @@ async def detect_change():
     fight_results = post_bouts.get_bouts("def.", card_details['wiki_title'])
     if len(fight_results) > card_details['fights_ended']:
         channel = await client.fetch_channel(CHANNEL)
-        winner, loser = fight_results[0].strip().split(' def. ')
+        try:
+            winner, loser = fight_results[0].strip().split(' def. ')
+        except:
+            winner, loser = fight_results[0].strip().split(' Draw ')
         card_details['fights_ended'] += 1
         update_column("fights_ended", card_details['fights_ended'])
+        goofs = ""
+        heemsters = ""
         conn = connection.getconn()
         with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
-            cursor.execute("""
-                update picks
-                set is_correct = FALSE
-                where pick = %s and
-                card = %s
-            """, (loser, card_details['title']))
-            cursor.execute("""
-                update picks
-                set is_correct = TRUE
-                where pick = %s and
-                card = %s
-            """, (winner, card_details['title']))
-            cursor.execute("select distinct(username) from picks where is_correct = %s and card = %s", (False, card_details['title']))
-            losers = cursor.fetchall()
-            goofs = ""
-            for user in losers:
-                goofs += f"{user['username']}, "
-            if card_details['fights_ended'] != card_details['num_fights']:    
-                await channel.send(f"LOSERS: {goofs[:-2]}")
-            else:
-                await channel.send(f"EVENT OVER. LOSERS: {goofs[:-2]}")
+            if " def. " in fight_results[0]:
+                update_is_correct("FALSE", card_details['title'], loser)
+                update_is_correct("TRUE", card_details['title'], winner)
+            else:   # if no def. in string, it must be a draw
+                update_is_correct("FALSE", card_details['title'], loser)
+                update_is_correct("FALSE", card_details['title'], winner)
+            winners, losers = get_winners_and_losers(card_details['title'])
+            goofs = '<br>'.join(losers)
+            goofs = f"<b>LOSERS</b><br>{goofs}"
+            heemsters = '<br>'.join(winners)
+            heemsters = f"<b>Still in the game</b><br>{heemsters}"
+            if card_details['fights_ended'] == card_details['num_fights']:    # if the card is over
                 next_card = post_bouts.get_next_card(card_details['wiki_title'])
                 next_card['html'] = ""
                 next_card['pick_messages'] = ""
                 next_card['current_state'] = "opening_post"
+                for w in winners: 
+                    cursor.execute("update users set wins = wins+1 where username = %s", (w,))
+                for l in losers:    
+                    cursor.execute("update users set goofs = goofs+1 where username = %s", (l,))
                 update_information(next_card)
                 detect_change.stop()
                 opening_post.start()
                 print("\ntransitioning to opening post\n")
         conn.commit()
         connection.putconn(conn)
-        html = update_html(winner, loser, card_details['html'])
+        html = update_html(winner, loser, card_details['html'], winners, losers)
         await channel.send(file=File(screenshot(html), 'results.png'))
 
 

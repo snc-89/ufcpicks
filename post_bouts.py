@@ -6,13 +6,20 @@ import json
 def get_bouts(vs_or_def, card_title):
     raw_text = get_raw_text(card_title)
     raw_text = re.search("{{MMAevent card\|Main card(.*\n)*{{MMAevent card\|Preliminary", raw_text).group()
-    matches = re.findall(f"\|.*\n\|{vs_or_def}\n\|.*", raw_text)
+    if vs_or_def == "vs.":
+        matches = re.findall(f"\|.*\n\|{vs_or_def}\n\|.*", raw_text)
+    else:
+        matches = re.findall(f"\|.*\n\|{vs_or_def}\n\|.*|\|.*\n\|vs.\n\|.*\n\|Draw", raw_text)
+
+    print(f'\n{matches}\n')
 
     clean_matches = []
     for match in matches:
         for i in ['|', '[', ']', ' (c)']:
             match = match.replace(i, '')
         match = match.replace('\n', ' ')
+        if match.endswith(" Draw"):
+            match = match.replace(" Draw", "").replace("vs.", "Draw")
         match = re.sub("[a-zA-Z\u0080-\uFFFF]+ \(fighter\)[a-zA-Z\u0080-\uFFFF]+ ","",match)
         clean_matches.append(match)
     return clean_matches
@@ -31,7 +38,6 @@ def get_raw_text(card_title):
         raw_text = response.json()['parse']['wikitext']['*']
     else:
         print(f"request failed:     \nstatus code:        {response.status_code}\nreason:     {response.reason}")
-        exit()
     return raw_text
 
 
@@ -52,7 +58,6 @@ def get_next_card(last_card_title):
         'start_time': date,
         'fights_ended': 0,
     }
-
     return card_json
 
-# print(get_raw_text('UFC_Fight_Night:_Rozenstruik_vs._Gane'))
+# print(get_bouts("def.",'UFC_Fight_Night:_Rozenstruik_vs._Gane'))
