@@ -93,14 +93,7 @@ def screenshot(html_content):
 
 
 def get_card_details():
-    conn = connection.getconn()
-    with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
-        cursor.execute("""
-            select * from information where id = 1 limit 1;
-        """)
-        card_details = cursor.fetchone()
-    conn.commit()
-    connection.putconn(conn)
+    card_details = query_db("select * from information where id = 1 limit 1;")[0]
     if card_details['pick_messages']:
         card_details['pick_messages'] = [int(x) for x in card_details['pick_messages'].split()]
     return card_details
@@ -119,16 +112,23 @@ def insert_picks(card_title, bout, users, fighter):
     connection.putconn(conn)
 
 
-def make_html_table(card_title):
+def query_db(query, params=None):
     conn = connection.getconn()
     with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
-        cursor.execute("""
-            select username, pick, bout from picks where card = %s;
-        """, (card_title,))
-        data = cursor.fetchall()
+        if params:
+            cursor.execute(query, params)
+        else:
+            cursor.execute(query)
+        if query.startswith("select"):
+            result = cursor.fetchall()
     conn.commit()
     connection.putconn(conn)
+    if query.startswith("select"):
+        return result
 
+
+def make_html_table(card_title):
+    data = query_db("select username, pick, bout from picks where card = %s;", (card_title,))
     foobar = {}
     for row in data:
         if row['username'] not in foobar:
@@ -156,16 +156,12 @@ def make_html_table(card_title):
 def update_column(column, value):
     if column == "pick_messages":
         value = ' '.join(str(e) for e in value)
-    conn = connection.getconn()
     sql = f"""
             update information
             set {column} = %s
             where id = 1    
         """
-    with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
-        cursor.execute(sql, (value, ))
-    conn.commit()
-    connection.putconn(conn)
+    query_db(sql, (value,))
 
 
 def update_information(card_details):
@@ -219,6 +215,7 @@ def update_is_correct(truth_value, title, fighter):
             where pick = %s and
             card = %s
         """, (fighter, title))
+    conn.commit()
     connection.putconn(conn)
 
 
@@ -313,7 +310,6 @@ async def take_picks():
         print(f'\n{"transitioning to detect_change"}\n')
 
 
-# TODO fix this fucken draw shit 
 @tasks.loop(seconds=300)
 async def detect_change():
     print(f"{datetime.now()}    detect change")
@@ -331,44 +327,33 @@ async def detect_change():
             winner, loser = fight_results[0].strip().split(' Draw ')
         card_details['fights_ended'] += 1
         update_column("fights_ended", card_details['fights_ended'])
-        goofs = ""
-        heemsters = ""
-        conn = connection.getconn()
-        with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
-            if " def. " in fight_results[0]:
-                update_is_correct("FALSE", card_details['title'], loser)
-                update_is_correct("TRUE", card_details['title'], winner)
-            else:   # if no def. in string, it must be a draw
-                update_is_correct("FALSE", card_details['title'], loser)
-                update_is_correct("FALSE", card_details['title'], winner)
-            winners, losers = get_winners_and_losers(card_details['title'])
-            goofs = '<br>'.join(losers)
-            goofs = f"<b>LOSERS</b><br>{goofs}"
-            heemsters = '<br>'.join(winners)
-            heemsters = f"<b>Still in the game</b><br>{heemsters}"
-            if card_details['fights_ended'] == card_details['num_fights']:    # if the card is over
-                next_card = post_bouts.get_next_card(card_details['wiki_title'])
-                next_card['html'] = ""
-                next_card['pick_messages'] = ""
-                next_card['current_state'] = "opening_post"
-                for w in winners:
-                    cursor.execute("update users set wins = wins+1 where username = %s", (w,))
-                for l in losers:    
-                    cursor.execute("update users set goofs = goofs+1 where username = %s", (l,))
-                update_information(next_card)
-                detect_change.stop()
-                opening_post.start()
-                print("\ntransitioning to opening post\n")
-        conn.commit()
-        connection.putconn(conn)
+        if " def. " in fight_results[0]:
+            update_is_correct("FALSE", card_details['title'], loser)
+            update_is_correct("TRUE", card_details['title'], winner)
+        else:   # if no def. in string, it must be a draw
+            update_is_correct("FALSE", card_details['title'], loser)
+            update_is_correct("FALSE", card_details['title'], winner)
+        winners, losers = get_winners_and_losers(card_details['title'], card_details['fights_ended'])
+        goofs = '<br>'.join(losers)
+        goofs = f"<b>LOSERS</b><br>{goofs}"
+        heemsters = '<br>'.join(winners)
+        heemsters = f"<b>Still in the game</b><br>{heemsters}"
+        if card_details['fights_ended'] == card_details['num_fights']:    # if the card is over
+            next_card = post_bouts.get_next_card(card_details['wiki_title'])
+            next_card['html'] = ""
+            next_card['pick_messages'] = ""
+            next_card['current_state'] = "opening_post"
+            for w in winners:
+                query_db("update users set wins = wins+1 where username = %s", (w,))
+            for l in losers:    
+                query_db("update users set goofs = goofs+1 where username = %s", (l,))
+            update_information(next_card)
+            detect_change.stop()
+            opening_post.start()
+            print("\ntransitioning to opening post\n")
         html = update_html(winner, loser, card_details['html'], heemsters, goofs)
         await channel.send(file=File(screenshot(html), 'results.png'))
 
 
 # TODO commands for seeing the ladderboard, number of correct picks
-client.run(token)
-# with open('result_table.html', 'r') as f:
-#     html = f.read()
-
-# with open('pic.png', 'wb') as f:
-#     f.write(screenshot(html).getbuffer())
+# client.run(token)
