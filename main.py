@@ -146,6 +146,8 @@ def make_html_table(card_title):
 <body>
 {pd.DataFrame(foobar).T.to_html()}
 </body>
+<span>
+</span>
 </html>"""
 
     html = re.sub("\"dataframe\"", "'table'", html)
@@ -194,17 +196,17 @@ def update_html(winner, loser, html, winners, losers):
 <span>
 <div class="container">
     <div class="row">
-        <div class="col-md-6">
+        <div class="col-md-6" align="center">
             <p>{winners}</p>
         </div>
-        <div class="col-md-6">
+        <div class="col-md-6" align="center">
             <p>{losers}</p>
         </div>
     </div>
 </div>
 </span
     """
-    html = re.sub("<span>.*</span>", replacement, html)
+    html = re.sub("<span>(.*\n)*</span>", replacement, html)
     update_column("html", html)
     return html
 
@@ -221,7 +223,7 @@ def update_is_correct(truth_value, title, fighter):
     connection.putconn(conn)
 
 
-def get_winners_and_losers(card_title):
+def get_winners_and_losers(card_title, fights_ended):
     conn = connection.getconn()
     with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
         cursor.execute("select distinct(username) from picks where is_correct = %s and card = %s", (False, card_title))
@@ -230,6 +232,14 @@ def get_winners_and_losers(card_title):
         all_users = {x[0] for x in cursor.fetchall()}
         winners = list(all_users - losers)
         losers = list(losers)
+        for i in range(len(winners)-1, -1, -1):
+            cursor.execute("""select count(is_correct) from picks 
+                where username = %s
+                and card = %s
+                and is_correct = TRUE""",(winners[i], card_title))
+            win_counts = cursor.fetchone()
+            if win_counts and win_counts[0] != fights_ended:
+                winners.pop(i)
     conn.commit()
     connection.putconn(conn)
     return winners, losers
@@ -342,7 +352,7 @@ async def detect_change():
                 next_card['html'] = ""
                 next_card['pick_messages'] = ""
                 next_card['current_state'] = "opening_post"
-                for w in winners: 
+                for w in winners:
                     cursor.execute("update users set wins = wins+1 where username = %s", (w,))
                 for l in losers:    
                     cursor.execute("update users set goofs = goofs+1 where username = %s", (l,))
@@ -356,6 +366,7 @@ async def detect_change():
         await channel.send(file=File(screenshot(html), 'results.png'))
 
 
+# TODO commands for seeing the ladderboard, number of correct picks
 client.run(token)
 # with open('result_table.html', 'r') as f:
 #     html = f.read()

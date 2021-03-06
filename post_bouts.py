@@ -11,8 +11,6 @@ def get_bouts(vs_or_def, card_title):
     else:
         matches = re.findall(f"\|.*\n\|{vs_or_def}\n\|.*|\|.*\n\|vs.\n\|.*\n\|Draw", raw_text)
 
-    print(f'\n{matches}\n')
-
     clean_matches = []
     for match in matches:
         for i in ['|', '[', ']', ' (c)']:
