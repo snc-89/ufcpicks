@@ -66,6 +66,21 @@ async def on_ready():
     # await channel.send(file=File(screenshot(os.path.abspath('result_table.html')), "results.png"))
 
 
+def query_db(query, params=None):
+    conn = connection.getconn()
+    with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
+        if params:
+            cursor.execute(query, params)
+        else:
+            cursor.execute(query)
+        if query.startswith("select"):
+            result = cursor.fetchall()
+    conn.commit()
+    connection.putconn(conn)
+    if query.startswith("select"):
+        return result
+
+
 def screenshot(html_content):
     if os.environ['HOME'] != '/home/simon':
         GOOGLE_CHROME_PATH = '/app/.apt/usr/bin/google-chrome'
@@ -110,21 +125,6 @@ def insert_picks(card_title, bout, users, fighter):
                     do nothing""", (str(user), card_title, bout, fighter))
     conn.commit()
     connection.putconn(conn)
-
-
-def query_db(query, params=None):
-    conn = connection.getconn()
-    with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
-        if params:
-            cursor.execute(query, params)
-        else:
-            cursor.execute(query)
-        if query.startswith("select"):
-            result = cursor.fetchall()
-    conn.commit()
-    connection.putconn(conn)
-    if query.startswith("select"):
-        return result
 
 
 def make_html_table(card_title):
@@ -356,4 +356,4 @@ async def detect_change():
 
 
 # TODO commands for seeing the ladderboard, number of correct picks
-# client.run(token)
+client.run(token)
