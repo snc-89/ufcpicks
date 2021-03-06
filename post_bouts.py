@@ -1,6 +1,7 @@
 import requests
 import re
-import json
+from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
 
 
 def get_bouts(vs_or_def, card_title):
@@ -39,14 +40,23 @@ def get_raw_text(card_title):
     return raw_text
 
 
+def get_timestamp_from_tapology(card_title):
+    google_search = requests.get(f"http://www.google.com/search?q=tapology {card_title}&btnI", allow_redirects=True).text
+    tapology_url = re.search("\"https://www.tapology.com/fightcenter/events/.*?\"", google_search).group()[1:-1]
+    page = requests.get(tapology_url, headers={'User-Agent': 'a user agentff'})
+    soup = BeautifulSoup(page.content, 'html.parser')
+    div = soup.find('div',class_='details details_with_poster clearfix')
+    timestamp = div.find(class_='header').text
+    timestamp = datetime.strptime(timestamp[:-3], "%A %m.%d.%Y at %I:%M %p")
+    return timestamp + timedelta(hours=16)
+
+
 def get_next_card(last_card_title):
     last_card_raw_text = get_raw_text(last_card_title)
     card_title = re.search("\|followingevent= \[\[(.*)(\|.*)?\]\]", last_card_raw_text).group(1)
     if re.match("UFC [0-9]{3}", card_title[:7]):
         card_title = card_title[0:7]
-    next_card_raw_text = get_raw_text(card_title.replace(' ', '_'))
-    date = re.search("\|date= \{\{start date\|(.*)\}\}", next_card_raw_text).group(1).replace("|","-")
-    date = f"{date} 12:00:00"
+    date = str(get_timestamp_from_tapology(card_title))
     bouts = get_bouts("vs.", card_title.replace(' ', '_'))
 
     card_json = {
@@ -57,5 +67,3 @@ def get_next_card(last_card_title):
         'fights_ended': 0,
     }
     return card_json
-
-# print(get_bouts("def.",'UFC_Fight_Night:_Rozenstruik_vs._Gane'))

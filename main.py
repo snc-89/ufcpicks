@@ -149,7 +149,6 @@ def make_html_table(card_title):
 <span>
 </span>
 </html>"""
-
     html = re.sub("\"dataframe\"", "'table'", html)
     return html
 
@@ -362,7 +361,7 @@ async def detect_change():
                 print("\ntransitioning to opening post\n")
         conn.commit()
         connection.putconn(conn)
-        html = update_html(winner, loser, card_details['html'], winners, losers)
+        html = update_html(winner, loser, card_details['html'], heemsters, goofs)
         await channel.send(file=File(screenshot(html), 'results.png'))
 
 
