@@ -4,16 +4,17 @@ from discord import File, Embed
 import os
 from psycopg2 import pool
 import psycopg2.extras
-import post_bouts
 from datetime import datetime, timedelta
 import pandas as pd
 import re
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from io import BytesIO
+import requests
+from bs4 import BeautifulSoup
 
 
-client = commands.Bot(command_prefix='!')
+client = commands.Bot(command_prefix='$')
 with open('token.txt', 'r') as f:
     token = f.read()
 
@@ -62,8 +63,6 @@ connection.putconn(conn)
 async def on_ready():
     opening_post.start()
     print(f'{client.user} has logged in')
-    # channel = await client.fetch_channel(CHANNEL)
-    # await channel.send(file=File(screenshot(os.path.abspath('result_table.html')), "results.png"))
 
 
 def query_db(query, params=None):
@@ -79,6 +78,87 @@ def query_db(query, params=None):
     connection.putconn(conn)
     if query.startswith("select"):
         return result
+
+
+def get_bouts(vs_or_def, card_title):
+    raw_text = get_raw_text(card_title)
+    raw_text = re.search("{{MMAevent card\|Main card(.*\n)*{{MMAevent card\|Preliminary", raw_text).group()
+    if vs_or_def == "vs.":
+        matches = re.findall(f"\|.*\n\|{vs_or_def}\n\|.*", raw_text)
+    else:
+        matches = re.findall(f"\|.*\n\|{vs_or_def}\n\|.*|\|.*\n\|vs.\n\|.*\n\|Draw", raw_text)
+
+    clean_matches = []
+    for match in matches:
+        for i in ['|', '[', ']', ' (c)']:
+            match = match.replace(i, '')
+        match = match.replace('\n', ' ')
+        if match.endswith(" Draw"):
+            match = match.replace(" Draw", "").replace("vs.", "Draw")
+        match = re.sub("[a-zA-Z\u0080-\uFFFF]+ \(fighter\)[a-zA-Z\u0080-\uFFFF]+ ","",match)
+        clean_matches.append(match)
+    return clean_matches
+
+
+def get_raw_text(card_title):
+    url = "https://en.wikipedia.org/w/api.php"
+    params = {
+        "action": "parse",
+        "page": card_title,
+        "prop": "wikitext",
+        "format": "json"
+    }
+    response = requests.get(url, params=params)
+    if response.status_code == 200:
+        raw_text = response.json()['parse']['wikitext']['*']
+    else:
+        print(f"request failed:     \nstatus code:        {response.status_code}\nreason:     {response.reason}")
+    return raw_text
+
+
+def get_timestamp_from_tapology(card_title):
+    google_search = requests.get(f"http://www.google.com/search?q=tapology {card_title}&btnI", allow_redirects=True).text
+    tapology_url = re.search("\"https://www.tapology.com/fightcenter/events/.*?\"", google_search).group()[1:-1]
+    page = requests.get(tapology_url, headers={'User-Agent': 'a user agentff'})
+    soup = BeautifulSoup(page.content, 'html.parser')
+    div = soup.find('div',class_='details details_with_poster clearfix')
+    timestamp = div.find(class_='header').text
+    timestamp = datetime.strptime(timestamp[:-3], "%A %m.%d.%Y at %I:%M %p")
+    return timestamp + timedelta(hours=16)
+
+
+def get_current_card():
+    card_details = get_card_details()
+    card_title = card_details['title']
+    date = str(get_timestamp_from_tapology(card_title))
+    bouts = get_bouts("vs.", card_title.replace(' ', '_'))
+
+    card_json = {
+        'title': card_title,
+        'wiki_title': card_title.replace(' ', '_'),
+        'num_fights': len(bouts),
+        'start_time': date,
+        'fights_ended': 0,
+    }
+    return card_json
+
+
+def get_next_card(last_card_title):
+    last_card_raw_text = get_raw_text(last_card_title)
+    card_title = re.search("\|followingevent= \[\[(.*)(\|.*)?\]\]", last_card_raw_text).group(1)
+    if re.match("UFC [0-9]{3}", card_title[:7]):
+        card_title = card_title[0:7]
+    date = str(get_timestamp_from_tapology(card_title))
+    bouts = get_bouts("vs.", card_title.replace(' ', '_'))
+
+    card_json = {
+        'title': card_title,
+        'wiki_title': card_title.replace(' ', '_'),
+        'num_fights': len(bouts),
+        'start_time': date,
+        'fights_ended': 0,
+    }
+    return card_json
 
 
 def screenshot(html_content):
@@ -249,17 +329,22 @@ async def opening_post():
         opening_post.stop()
         take_picks.start()
         return
+    current_card = get_current_card()
+    current_card['html'] = ""
+    current_card['pick_messages'] = ""
+    current_card['current_state'] = "opening_post"
+    update_information(current_card)
     current_time = datetime.now()
     fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
     if current_time >= (fight_start_time - timedelta(hours=48)):
         ctx = await client.fetch_channel(CHANNEL)
         card_title = card_details['title']
-        bouts = post_bouts.get_bouts("vs.", card_details['wiki_title'])
+        bouts = get_bouts("vs.", card_details['wiki_title'])
         await ctx.send(f"UFC PICKS: {card_title}\n\nreact to the following messages with :one: to pick the first fighter, and react with :two: to pick the second fighter. you have until the prelims start to get your picks in. picks are not final until then. if you select both, your pick will be void.")
         card_details['pick_messages'] = []
         for bout in bouts:
             fighter1, fighter2 = bout.split(" vs. ")
-            string = f":one: {fighter1} vs. {fighter2} :two:"
+            string = f":one: {fighter1.strip()} vs. {fighter2.strip()} :two:"
             message = await ctx.send(string)
             await message.add_reaction('1️⃣')
             await message.add_reaction('2️⃣')
@@ -281,7 +366,7 @@ async def take_picks():
         return
     current_time = datetime.now()
     fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
-    if current_time < fight_start_time and current_time >= (fight_start_time - timedelta(hours=1)):
+    if current_time < fight_start_time and current_time >= (fight_start_time - timedelta(hours=4)):
         card_title = card_details['title']
         message_ids = card_details['pick_messages']
         ctx = await client.fetch_channel(CHANNEL)
@@ -289,6 +374,7 @@ async def take_picks():
             message = await ctx.fetch_message(int(message_id))
             bout = message.content[5:-5].strip()
             fighter1, fighter2 = bout.split(" vs. ")
+            fighter1, fighter2 = fighter1.strip(), fighter2.strip()
             for reaction in message.reactions:
                 if reaction.emoji == '1️⃣':
                     one_react_users = list(await reaction.users().flatten())
@@ -318,13 +404,14 @@ async def detect_change():
         detect_change.stop()
         opening_post.start()
         return
-    fight_results = post_bouts.get_bouts("def.", card_details['wiki_title'])
+    fight_results = get_bouts("def.", card_details['wiki_title'])
     if len(fight_results) > card_details['fights_ended']:
         channel = await client.fetch_channel(CHANNEL)
         try:
             winner, loser = fight_results[0].strip().split(' def. ')
         except:
             winner, loser = fight_results[0].strip().split(' Draw ')
+        winner, loser = winner.strip(), loser.strip()
         card_details['fights_ended'] += 1
         update_column("fights_ended", card_details['fights_ended'])
         if " def. " in fight_results[0]:
@@ -339,7 +426,7 @@ async def detect_change():
         heemsters = '<br>'.join(winners)
         heemsters = f"<b>Still in the game</b><br>{heemsters}"
         if card_details['fights_ended'] == card_details['num_fights']:    # if the card is over
-            next_card = post_bouts.get_next_card(card_details['wiki_title'])
+            next_card = get_next_card(card_details['wiki_title'])
             next_card['html'] = ""
             next_card['pick_messages'] = ""
             next_card['current_state'] = "opening_post"
