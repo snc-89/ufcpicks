@@ -366,7 +366,7 @@ async def take_picks():
         return
     current_time = datetime.now()
     fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
-    if current_time < fight_start_time and current_time >= (fight_start_time - timedelta(hours=4)):
+    if current_time > fight_start_time:
         card_title = card_details['title']
         message_ids = card_details['pick_messages']
         ctx = await client.fetch_channel(CHANNEL)
