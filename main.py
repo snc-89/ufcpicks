@@ -226,7 +226,9 @@ def make_html_table(card_title):
 </style>
 </head>
 <body>
+<div class="container">
 {pd.DataFrame(foobar).T.to_html()}
+</div>
 <span>
 </span>
 </body>
