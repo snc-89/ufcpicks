@@ -139,6 +139,9 @@ def get_current_card():
         'num_fights': len(bouts),
         'start_time': date,
         'fights_ended': 0,
+        "html": "",
+        "pick_messages": "",
+        "current_state": "opening_post" 
     }
     return card_json
 
@@ -150,13 +153,15 @@ def get_next_card(last_card_title):
         card_title = card_title[0:7]
     date = str(get_timestamp_from_tapology(card_title))
     bouts = get_bouts("vs.", card_title.replace(' ', '_'))
-
     card_json = {
         'title': card_title,
         'wiki_title': card_title.replace(' ', '_'),
         'num_fights': len(bouts),
         'start_time': date,
         'fights_ended': 0,
+        "html": "",
+        "pick_messages": "",
+        "current_state": "opening_post" 
     }
     return card_json
 
@@ -195,16 +200,12 @@ def get_card_details():
         
 
 def insert_picks(card_title, bout, users, fighter):
-    conn = connection.getconn()
-    with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
-        for user in users:
-            if user != client.user:
-                cursor.execute("insert into users(username) values(%s) on conflict (username) do nothing", (str(user),))
-                cursor.execute("""insert into picks(username, card, bout, pick) values(%s,%s,%s,%s)
-                    on conflict (username, card, bout)
-                    do nothing""", (str(user), card_title, bout, fighter))
-    conn.commit()
-    connection.putconn(conn)
+    for user in users:
+        if user != client.user:
+            query_db("insert into users(username) values(%s) on conflict (username) do nothing", (str(user),))
+            query_db("""insert into picks(username, card, bout, pick) values(%s,%s,%s,%s)
+                on conflict (username, card, bout)
+                do nothing""", (str(user), card_title, bout, fighter))
 
 
 def make_html_table(card_title):
@@ -245,26 +246,25 @@ def update_column(column, value):
 
 
 def update_information(card_details):
-    conn = connection.getconn()
-    with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
-        cursor.execute("""
-            update information
-            set
-                title = %(title)s,
-                wiki_title = %(wiki_title)s,
-                num_fights = %(num_fights)s,
-                fights_ended = %(fights_ended)s,
-                start_time = %(start_time)s,
-                current_state = %(current_state)s,
-                pick_messages = %(pick_messages)s,
-                html = %(html)s
-            where id = 1
-        """, card_details)
-    conn.commit()
-    connection.putconn(conn)
+    query_db("""update information
+        set
+            title = %(title)s,
+            wiki_title = %(wiki_title)s,
+            num_fights = %(num_fights)s,
+            fights_ended = %(fights_ended)s,
+            start_time = %(start_time)s,
+            current_state = %(current_state)s,
+            pick_messages = %(pick_messages)s,
+            html = %(html)s
+        where id = 1""", card_details)
 
 
 def update_html(winner, loser, html, winners, losers):
+    goofs = '<br>'.join(losers)
+    goofs = f"<b>LOSERS</b><br>{goofs}"
+    heemsters = '<br>'.join(winners)
+    heemsters = f"<b>Still in the game</b><br>{heemsters}"
+
     html = re.sub(f"<td>{loser}</td>", f"<td class='bg-danger'>{loser}</td>", html)
     html = re.sub(f"<td>{winner}</td>", f"<td class='bg-success'>{winner}</td>", html)
     replacement = f"""
@@ -272,10 +272,10 @@ def update_html(winner, loser, html, winners, losers):
 <div class="container">
     <div class="row">
         <div class="col-md-6" align="center">
-            <p>{winners}</p>
+            <p>{heemsters}</p>
         </div>
         <div class="col-md-6" align="center">
-            <p>{losers}</p>
+            <p>{goofs}</p>
         </div>
     </div>
 </div>
@@ -287,29 +287,19 @@ def update_html(winner, loser, html, winners, losers):
 
 
 def update_is_correct(truth_value, title, fighter):
-    conn = connection.getconn()
-    with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
-        cursor.execute(f"""
-            update picks
-            set is_correct = {truth_value}
-            where pick = %s and
-            card = %s
-        """, (fighter, title))
-    conn.commit()
-    connection.putconn(conn)
+    query_db(f"""update picks
+        set is_correct = {truth_value}
+        where pick = %s and
+        card = %s""", (fighter, title))
 
 
 def get_winners_and_losers(card_title, fights_ended):
-    conn = connection.getconn()
-    with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
-        cursor.execute("select distinct(username) from picks where card = %s and is_correct = TRUE group by username having count(*) = %s;", (card_title, fights_ended))
-        winners = {x[0] for x in cursor.fetchall()}
-        cursor.execute("select distinct(username) from picks where card = %s", (card_title,))
-        all_users = {x[0] for x in cursor.fetchall()}
-        losers = list(all_users - winners)
-        winners = list(winners)
-    conn.commit()
-    connection.putconn(conn)
+    winners = query_db("select distinct(username) from picks where card = %s and is_correct = TRUE group by username having count(*) = %s;", (card_title, fights_ended))
+    winners = {x[0] for x in winners}
+    all_users = query_db("select distinct(username) from picks where card = %s", (card_title,))
+    all_users = {x[0] for x in all_users}
+    losers = list(all_users - winners)
+    winners = list(winners)
     return winners, losers
 
 
@@ -322,9 +312,6 @@ async def opening_post():
         take_picks.start()
         return
     current_card = get_current_card()
-    current_card['html'] = ""
-    current_card['pick_messages'] = ""
-    current_card['current_state'] = "opening_post"
     update_information(current_card)
     current_time = datetime.now()
     fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
@@ -413,25 +400,34 @@ async def detect_change():
             update_is_correct("FALSE", card_details['title'], loser)
             update_is_correct("FALSE", card_details['title'], winner)
         winners, losers = get_winners_and_losers(card_details['title'], card_details['fights_ended'])
-        goofs = '<br>'.join(losers)
-        goofs = f"<b>LOSERS</b><br>{goofs}"
-        heemsters = '<br>'.join(winners)
-        heemsters = f"<b>Still in the game</b><br>{heemsters}"
         if card_details['fights_ended'] == card_details['num_fights']:    # if the card is over
             next_card = get_next_card(card_details['wiki_title'])
-            next_card['html'] = ""
-            next_card['pick_messages'] = ""
-            next_card['current_state'] = "opening_post"
             for w in winners:
                 query_db("update users set wins = wins+1 where username = %s", (w,))
             for l in losers:    
                 query_db("update users set goofs = goofs+1 where username = %s", (l,))
             update_information(next_card)
+            print("\ntransitioning to opening post\n")
             detect_change.stop()
             opening_post.start()
-            print("\ntransitioning to opening post\n")
-        html = update_html(winner, loser, card_details['html'], heemsters, goofs)
+        html = update_html(winner, loser, card_details['html'], winners, losers)
         await channel.send(file=File(screenshot(html), 'results.png'))
+
+
+@client.command()
+async def leaderboard(ctx, arg=None):
+    if arg == "me":
+        my_stats = query_db("select username, wins, goofs from users where username = %s", (str(ctx.author),))[0]
+        correct_picks = query_db("select count(*) from picks where username = %s and is_correct = TRUE", (str(ctx.author),))[0]
+        embed=Embed(title=f"Stats for {ctx.author}")
+        embed.add_field(name=f"**{my_stats['username']}**", value=f"> Wins: {my_stats['wins']}\n> Goofs: {my_stats['goofs']}\n> Correct picks: {correct_picks[0]}",inline=False)
+        await ctx.send(embed=embed)
+    else:
+        leaderboard = query_db("select username, wins from users order by wins desc limit 10")    
+        embed=Embed(title="UFC picks leaderboard")
+        for leader in leaderboard:
+            embed.add_field(name=f"**{leader['username']}**", value=f"> Wins: {leader['wins']}",inline=False)
+        await ctx.send(embed=embed)
 
 
 # TODO commands for seeing the ladderboard, number of correct picks
