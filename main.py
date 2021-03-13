@@ -210,7 +210,7 @@ def insert_picks(card_title, bout, users, fighter):
 
 
 def make_html_table(card_title):
-    data = query_db("select username, pick, bout from picks where card = %s;", (card_title,))
+    data = query_db("select username, pick, bout from picks where card = %s order by username;", (card_title,))
     foobar = {}
     for row in data:
         if row['username'] not in foobar:
@@ -226,6 +226,10 @@ def make_html_table(card_title):
 </style>
 </head>
 <body>
+<div class="jumbotron" style="text-align: center;">
+  <h1>UFC PICKS</h1>      
+  <h2>{card_title}</h2>
+</div>
 <div class="container">
 {pd.DataFrame(foobar).T.to_html()}
 </div>
