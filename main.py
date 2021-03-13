@@ -12,6 +12,7 @@ from selenium.webdriver.chrome.options import Options
 from io import BytesIO
 import requests
 from bs4 import BeautifulSoup
+import random
 
 
 client = commands.Bot(command_prefix='$')
@@ -150,7 +151,7 @@ def get_next_card(last_card_title):
     last_card_raw_text = get_raw_text(last_card_title)
     card_title = re.search("\|followingevent= \[\[(.*)(\|.*)?\]\]", last_card_raw_text).group(1)
     if re.match("UFC [0-9]{3}", card_title[:7]):
-        card_title = card_title[0:7]
+        card_title = card_title[:7]
     date = str(get_timestamp_from_tapology(card_title))
     bouts = get_bouts("vs.", card_title.replace(' ', '_'))
     card_json = {
@@ -410,6 +411,7 @@ async def detect_change():
             print("\ntransitioning to opening post\n")
             detect_change.stop()
             opening_post.start()
+            await leaderboard(channel)
         html = update_html(winner, loser, card_details['html'], winners, losers)
         await channel.send(file=File(screenshot(html), 'results.png'))
 
@@ -431,4 +433,38 @@ async def leaderboard(ctx, arg=None):
 
 
 # TODO commands for seeing the ladderboard, number of correct picks
-client.run(token)
+# client.run(token)
+
+def split_list(l):
+    random_number = random.randrange(len(l))
+    random.shuffle(l)
+    return l[random_number:], l[:random_number]
+
+listicular_cannibis = [
+    "user0","user1","user2","user3","user4","user5","user6","user7","user8","user9",
+]
+
+a, b = split_list(listicular_cannibis)
+insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Leon Edwards vs. Belal Muhammad", a, "Leon Edwards")
+insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Leon Edwards vs. Belal Muhammad", b, "Belal Muhammad")
+
+a, b = split_list(listicular_cannibis)
+insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Misha Cirkunov vs. Ryan Spann", a, "Misha Cirkunov")
+insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Misha Cirkunov vs. Ryan Spann", b, "Ryan Spann")
+
+a, b = split_list(listicular_cannibis)
+insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Dan Ige vs. Gavin Tucker", a, "Gavin Tucker")
+insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Dan Ige vs. Gavin Tucker", b, "Dan Ige")
+
+a, b = split_list(listicular_cannibis)
+insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Jonathan Martinez vs. Davey Grant", a, "Davey Grant")
+insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Jonathan Martinez vs. Davey Grant", b, "Jonathan Martinez")
+
+a, b = split_list(listicular_cannibis)
+insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Matheus Nicolau vs. Manel Kape", a, "Manel Kape")
+insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Matheus Nicolau vs. Manel Kape", b, "Matheus Nicolau")
+
+a, b = split_list(listicular_cannibis)
+insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Eryk Anders vs. Darren Stewart", a, "Darren Stewart")
+insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Eryk Anders vs. Darren Stewart", b, "Eryk Anders")
+
