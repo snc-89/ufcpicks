@@ -279,7 +279,7 @@ def update_html(winner, loser, html, winners, losers):
         </div>
     </div>
 </div>
-</span
+</span>
     """
     html = re.sub("<span>(.*\n)*</span>", replacement, html)
     update_column("html", html)
@@ -299,7 +299,6 @@ def update_is_correct(truth_value, title, fighter):
     connection.putconn(conn)
 
 
-# change this logic to the count of wins per user, and if the count of wins is equal to fights ended, theyre still in the game
 def get_winners_and_losers(card_title, fights_ended):
     conn = connection.getconn()
     with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
