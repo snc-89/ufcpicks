@@ -299,23 +299,16 @@ def update_is_correct(truth_value, title, fighter):
     connection.putconn(conn)
 
 
+# change this logic to the count of wins per user, and if the count of wins is equal to fights ended, theyre still in the game
 def get_winners_and_losers(card_title, fights_ended):
     conn = connection.getconn()
     with conn.cursor(cursor_factory = psycopg2.extras.DictCursor) as cursor:
-        cursor.execute("select distinct(username) from picks where is_correct = %s and card = %s", (False, card_title))
-        losers = {x[0] for x in cursor.fetchall()}
+        cursor.execute("select distinct(username) from picks where card = %s and is_correct = TRUE group by username having count(*) = %s;", (card_title, fights_ended))
+        winners = {x[0] for x in cursor.fetchall()}
         cursor.execute("select distinct(username) from picks where card = %s", (card_title,))
         all_users = {x[0] for x in cursor.fetchall()}
-        winners = list(all_users - losers)
-        losers = list(losers)
-        for i in range(len(winners)-1, -1, -1):
-            cursor.execute("""select count(is_correct) from picks 
-                where username = %s
-                and card = %s
-                and is_correct = TRUE""",(winners[i], card_title))
-            win_counts = cursor.fetchone()
-            if win_counts and win_counts[0] != fights_ended:
-                winners.pop(i)
+        losers = list(all_users - winners)
+        winners = list(winners)
     conn.commit()
     connection.putconn(conn)
     return winners, losers
