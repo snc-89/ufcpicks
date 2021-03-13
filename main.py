@@ -227,9 +227,9 @@ def make_html_table(card_title):
 </head>
 <body>
 {pd.DataFrame(foobar).T.to_html()}
-</body>
 <span>
 </span>
+</body>
 </html>"""
     html = re.sub("\"dataframe\"", "'table'", html)
     return html
@@ -440,9 +440,9 @@ client.run(token)
 #     random.shuffle(l)
 #     return l[random_number:], l[:random_number]
 
-# listicular_cannibis = [
-#     "user0","user1","user2","user3","user4","user5","user6","user7","user8","user9",
-# ]
+# listicular_cannibis = []
+# for i in range(50):
+#     listicular_cannibis.append(f"user{i}")
 
 # a, b = split_list(listicular_cannibis)
 # insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Leon Edwards vs. Belal Muhammad", a, "Leon Edwards")
@@ -468,3 +468,4 @@ client.run(token)
 # insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Eryk Anders vs. Darren Stewart", a, "Darren Stewart")
 # insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Eryk Anders vs. Darren Stewart", b, "Eryk Anders")
 
+# print(make_html_table("UFC Fight Night: Edwards vs. Muhammad"))
