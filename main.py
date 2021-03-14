@@ -83,11 +83,12 @@ def query_db(query, params=None):
 
 def get_bouts(vs_or_def, card_title):
     raw_text = get_raw_text(card_title)
-    raw_text = re.search("{{MMAevent card\|Main card(.*\n)*{{MMAevent card\|Preliminary", raw_text).group()
+    raw_text = re.search("\{\{MMAevent card\|Main card(.*\n)*\{\{MMAevent card\|Preliminary", raw_text, re.IGNORECASE)
+    raw_text = raw_text.group()
     if vs_or_def == "vs.":
-        matches = re.findall(f"\|.*\n\|{vs_or_def}\n\|.*", raw_text)
+        matches = re.findall(f"\|.*\n\|{vs_or_def}\n\|.*", raw_text, re.IGNORECASE)
     else:
-        matches = re.findall(f"\|.*\n\|{vs_or_def}\n\|.*|\|.*\n\|vs.\n\|.*\n\|Draw|\|.*\n\|vs.\n\|.*\n\|No Contest", raw_text)
+        matches = re.findall(f"\|.*\n\|{vs_or_def}\n\|.*|\|.*\n\|vs.\n\|.*\n\|Draw|\|.*\n\|vs.\n\|.*\n\|No Contest", raw_text, re.IGNORECASE)
 
     clean_matches = []
     for match in matches:
@@ -151,7 +152,8 @@ def get_current_card():
 
 def get_next_card(last_card_title):
     last_card_raw_text = get_raw_text(last_card_title)
-    card_title = re.search("\|followingevent= \[\[(.*)(\|.*)?\]\]", last_card_raw_text).group(1)
+    card_title = re.search("\|followingevent= \[\[(.*)(\|.*)?\]\]", last_card_raw_text)
+    card_title = card_title.group(1)
     if re.match("UFC [0-9]{3}", card_title[:7]):
         card_title = card_title[:7]
     date = str(get_timestamp_from_tapology(card_title))
@@ -186,7 +188,7 @@ def screenshot(html_content):
     options.add_argument("--disable-features=VizDisplayCompositor")
     options.binary_location = GOOGLE_CHROME_PATH
     browser = webdriver.Chrome(options=options, executable_path=CHROMEDRIVER_PATH)
-    browser.set_window_size(1600,900)
+    browser.set_window_size(1920,1080)
     html_content = base64.b64encode(html_content.encode('utf-8')).decode()
     browser.get(f"data:text/html;base64,{html_content}")
     S = lambda X: browser.execute_script('return document.body.parentNode.scroll'+X)
@@ -402,24 +404,7 @@ async def detect_change():
         channel = await client.fetch_channel(CHANNEL)
         card_details['fights_ended'] += 1
         update_column("fights_ended", card_details['fights_ended'])
-        decision_type = "normal"
-        if " def. " in fight_results[0]:
-            winner, loser = fight_results[0].strip().split(' def. ')
-            winner, loser = winner.strip(), loser.strip()
-            update_is_correct("FALSE", card_details['title'], loser)
-            update_is_correct("TRUE", card_details['title'], winner)
-        elif " Draw " in fight_results[0]:   # must be a draw
-            winner, loser = fight_results[0].strip().split(' Draw ')
-            winner, loser = winner.strip(), loser.strip()
-            update_is_correct("FALSE", card_details['title'], loser)
-            update_is_correct("FALSE", card_details['title'], winner)
-            decision_type = "draw"
-        else:   # must be a no contest
-            winner, loser = fight_results[0].strip().split(' No Contest ')
-            winner, loser = winner.strip(), loser.strip()
-            update_is_correct("TRUE", card_details['title'], loser)
-            update_is_correct("TRUE", card_details['title'], winner)
-            decision_type = "no contest"
+        decision_type, winner, loser = get_winner_loser(card_details, fight_results)
         winners, losers = get_winners_and_losers(card_details['title'], card_details['fights_ended'])
         if card_details['fights_ended'] == card_details['num_fights']:    # if the card is over
             next_card = get_next_card(card_details['wiki_title'])
@@ -434,6 +419,28 @@ async def detect_change():
             await leaderboard(channel)
         html = update_html(winner, loser, card_details['html'], winners, losers, decision_type)
         await channel.send(file=File(screenshot(html), 'results.png'))
+
+
+def get_winner_loser(card_details, fight_results):
+    if " def. " in fight_results[0]:
+        winner, loser = fight_results[0].strip().split(' def. ')
+        winner, loser = winner.strip(), loser.strip()
+        update_is_correct("FALSE", card_details['title'], loser)
+        update_is_correct("TRUE", card_details['title'], winner)
+        decision_type = "normal"
+    elif " Draw " in fight_results[0]:   # must be a draw
+        winner, loser = fight_results[0].strip().split(' Draw ')
+        winner, loser = winner.strip(), loser.strip()
+        update_is_correct("FALSE", card_details['title'], loser)
+        update_is_correct("FALSE", card_details['title'], winner)
+        decision_type = "draw"
+    else:   # must be a no contest
+        winner, loser = fight_results[0].strip().split(' No Contest ')
+        winner, loser = winner.strip(), loser.strip()
+        update_is_correct("TRUE", card_details['title'], loser)
+        update_is_correct("TRUE", card_details['title'], winner)
+        decision_type = "no contest"
+    return decision_type,winner,loser
 
 
 @client.command()
