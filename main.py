@@ -87,7 +87,7 @@ def get_bouts(vs_or_def, card_title):
     if vs_or_def == "vs.":
         matches = re.findall(f"\|.*\n\|{vs_or_def}\n\|.*", raw_text)
     else:
-        matches = re.findall(f"\|.*\n\|{vs_or_def}\n\|.*|\|.*\n\|vs.\n\|.*\n\|Draw", raw_text)
+        matches = re.findall(f"\|.*\n\|{vs_or_def}\n\|.*|\|.*\n\|vs.\n\|.*\n\|Draw|\|.*\n\|vs.\n\|.*\n\|No Contest", raw_text)
 
     clean_matches = []
     for match in matches:
@@ -96,6 +96,8 @@ def get_bouts(vs_or_def, card_title):
         match = match.replace('\n', ' ')
         if match.endswith(" Draw"):
             match = match.replace(" Draw", "").replace("vs.", "Draw")
+        if match.endswith("No Contest"):
+            match = match.replace(" No Contest", "").replace("vs.", "No Contest")
         match = re.sub("[a-zA-Z\u0080-\uFFFF]+ \(fighter\)[a-zA-Z\u0080-\uFFFF]+ ","",match)
         clean_matches.append(match)
     return clean_matches
@@ -210,15 +212,14 @@ def insert_picks(card_title, bout, users, fighter):
 
 
 def make_html_table(card_title):
-    data = query_db("select username, pick, bout from picks where card = %s order by username;", (card_title,))
+    data = query_db("select username, pick, bout from picks where card = %s;", (card_title,))
     foobar = {}
     for row in data:
         if row['username'] not in foobar:
             foobar[row['username']] = {}
         foobar[row['username']][row['bout']] = row['pick']
 
-    html = f"""
-<!DOCTYPE html>
+    html = f"""<!DOCTYPE html>
 <html>
 <head>
 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous">
@@ -266,14 +267,20 @@ def update_information(card_details):
         where id = 1""", card_details)
 
 
-def update_html(winner, loser, html, winners, losers):
+def update_html(winner, loser, html, winners, losers, decision_type):
     goofs = '<br>'.join(losers)
     goofs = f"<b>LOSERS</b><br>{goofs}"
     heemsters = '<br>'.join(winners)
     heemsters = f"<b>Still in the game</b><br>{heemsters}"
-
-    html = re.sub(f"<td>{loser}</td>", f"<td class='bg-danger'>{loser}</td>", html)
-    html = re.sub(f"<td>{winner}</td>", f"<td class='bg-success'>{winner}</td>", html)
+    if decision_type == "normal":
+        html = re.sub(f"<td>{loser}</td>", f"<td class='bg-danger'>{loser}</td>", html)
+        html = re.sub(f"<td>{winner}</td>", f"<td class='bg-success'>{winner}</td>", html)
+    elif decision_type == "draw":
+        html = re.sub(f"<td>{loser}</td>", f"<td class='bg-danger'>{loser}</td>", html)
+        html = re.sub(f"<td>{winner}</td>", f"<td class='bg-danger'>{winner}</td>", html)
+    elif decision_type == "no contest":
+        html = re.sub(f"<td>{loser}</td>", f"<td class='bg-success'>{loser}</td>", html)
+        html = re.sub(f"<td>{winner}</td>", f"<td class='bg-success'>{winner}</td>", html)
     replacement = f"""
 <span>
 <div class="container">
@@ -393,19 +400,26 @@ async def detect_change():
     fight_results = get_bouts("def.", card_details['wiki_title'])
     if len(fight_results) > card_details['fights_ended']:
         channel = await client.fetch_channel(CHANNEL)
-        try:
-            winner, loser = fight_results[0].strip().split(' def. ')
-        except:
-            winner, loser = fight_results[0].strip().split(' Draw ')
-        winner, loser = winner.strip(), loser.strip()
         card_details['fights_ended'] += 1
         update_column("fights_ended", card_details['fights_ended'])
+        decision_type = "normal"
         if " def. " in fight_results[0]:
+            winner, loser = fight_results[0].strip().split(' def. ')
+            winner, loser = winner.strip(), loser.strip()
             update_is_correct("FALSE", card_details['title'], loser)
             update_is_correct("TRUE", card_details['title'], winner)
-        else:   # if no def. in string, it must be a draw
+        elif " Draw " in fight_results[0]:   # must be a draw
+            winner, loser = fight_results[0].strip().split(' Draw ')
+            winner, loser = winner.strip(), loser.strip()
             update_is_correct("FALSE", card_details['title'], loser)
             update_is_correct("FALSE", card_details['title'], winner)
+            decision_type = "draw"
+        else:   # must be a no contest
+            winner, loser = fight_results[0].strip().split(' No Contest ')
+            winner, loser = winner.strip(), loser.strip()
+            update_is_correct("TRUE", card_details['title'], loser)
+            update_is_correct("TRUE", card_details['title'], winner)
+            decision_type = "no contest"
         winners, losers = get_winners_and_losers(card_details['title'], card_details['fights_ended'])
         if card_details['fights_ended'] == card_details['num_fights']:    # if the card is over
             next_card = get_next_card(card_details['wiki_title'])
@@ -418,7 +432,7 @@ async def detect_change():
             detect_change.stop()
             opening_post.start()
             await leaderboard(channel)
-        html = update_html(winner, loser, card_details['html'], winners, losers)
+        html = update_html(winner, loser, card_details['html'], winners, losers, decision_type)
         await channel.send(file=File(screenshot(html), 'results.png'))
 
 
