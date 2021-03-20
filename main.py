@@ -13,6 +13,7 @@ from io import BytesIO
 import requests
 from bs4 import BeautifulSoup
 import random
+from time import sleep
 
 
 client = commands.Bot(command_prefix='$')
@@ -100,6 +101,7 @@ def get_bouts(vs_or_def, card_title):
         if match.endswith("No Contest"):
             match = match.replace(" No Contest", "").replace("vs.", "No Contest")
         match = re.sub("[a-zA-Z\u0080-\uFFFF]+ \(fighter\)[a-zA-Z\u0080-\uFFFF]+ ","",match)
+        match = re.sub("\s+", " ", match)
         clean_matches.append(match)
     return clean_matches
 
@@ -112,6 +114,7 @@ def get_raw_text(card_title):
         "prop": "wikitext",
         "format": "json"
     }
+    raw_text = ""
     response = requests.get(url, params=params)
     if response.status_code == 200:
         raw_text = response.json()['parse']['wikitext']['*']
@@ -221,6 +224,9 @@ def make_html_table(card_title):
             foobar[row['username']] = {}
         foobar[row['username']][row['bout']] = row['pick']
 
+    bout_order = get_bouts("vs.", card_title)
+    bout_order.reverse()
+
     html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -231,13 +237,23 @@ def make_html_table(card_title):
 <body>
 <div class="jumbotron" style="text-align: center;">
   <h1>UFC PICKS</h1>      
-  <h2>{card_title}</h2>
+  <h3>{card_title}</h3>
 </div>
-<div class="container">
-{pd.DataFrame(foobar).T.to_html()}
+<div class="row">
+  <div class="col-md-8" align="center">
+{pd.DataFrame(foobar)[bout_order].fillna('Blank').T.to_html()}
+  </div>
+  <div class="col-md-2" align="center">
+      <img id="winners_image" src="">
+      <br>
+      <span id="winners"></span>
+  </div>  
+  <div class="col-md-2" align="center">
+      <img id="losers_image" src="">
+      <br>
+      <span id="losers"></span>
+  </div>
 </div>
-<span>
-</span>
 </body>
 </html>"""
     html = re.sub("\"dataframe\"", "'table'", html)
@@ -271,9 +287,9 @@ def update_information(card_details):
 
 def update_html(winner, loser, html, winners, losers, decision_type):
     goofs = '<br>'.join(losers)
-    goofs = f"<b>LOSERS</b><br>{goofs}"
+    goofs = f"<h5>LOSERS</h5>{goofs}"
     heemsters = '<br>'.join(winners)
-    heemsters = f"<b>Still in the game</b><br>{heemsters}"
+    heemsters = f"<h5>Still in the game</h5>{heemsters}"
     if decision_type == "normal":
         html = re.sub(f"<td>{loser}</td>", f"<td class='bg-danger'>{loser}</td>", html)
         html = re.sub(f"<td>{winner}</td>", f"<td class='bg-success'>{winner}</td>", html)
@@ -283,21 +299,15 @@ def update_html(winner, loser, html, winners, losers, decision_type):
     elif decision_type == "no contest":
         html = re.sub(f"<td>{loser}</td>", f"<td class='bg-success'>{loser}</td>", html)
         html = re.sub(f"<td>{winner}</td>", f"<td class='bg-success'>{winner}</td>", html)
-    replacement = f"""
-<span>
-<div class="container">
-    <div class="row">
-        <div class="col-md-6" align="center">
-            <p>{heemsters}</p>
-        </div>
-        <div class="col-md-6" align="center">
-            <p>{goofs}</p>
-        </div>
-    </div>
-</div>
-</span>
-    """
-    html = re.sub("<span>(.*\n)*</span>", replacement, html)
+
+    good_image = random.choice(os.listdir("files/good"))
+    good_image = f"files/good/{good_image}"
+    bad_image = random.choice(os.listdir("files/bad"))
+    bad_image = f"files/bad/{bad_image}"
+    html = re.sub('<img id="winners_image" src=".*">', f'<img id="winners_image" src="{good_image}">', html)
+    html = re.sub('<img id="losers_image" src=".*">', f'<img id="losers_image" src="{bad_image}">', html)    
+    html = re.sub('<span id="losers">.*</span>', goofs, html)
+    html = re.sub('<span id="winners">.*</span>', heemsters, html)
     update_column("html", html)
     return html
 
@@ -335,9 +345,11 @@ async def opening_post():
         ctx = await client.fetch_channel(CHANNEL)
         card_title = card_details['title']
         bouts = get_bouts("vs.", card_details['wiki_title'])
-        await ctx.send(f"UFC PICKS: {card_title}\n\nreact to the following messages with :one: to pick the first fighter, and react with :two: to pick the second fighter. you have until the prelims start to get your picks in. picks are not final until then. if you select both, your pick will be void.")
+        embed=Embed(title=f"UFC PICKS: {card_title}", description="react to the following messages with :one: to pick the first fighter, and react with :two: to pick the second fighter. you have until the prelims start to get your picks in. picks are not final until then. if you select both, your pick will be void.")
+        await ctx.send(embed=embed)
         card_details['pick_messages'] = []
         for bout in bouts:
+            sleep(121)
             fighter1, fighter2 = bout.split(" vs. ")
             string = f":one: {fighter1.strip()} vs. {fighter2.strip()} :two:"
             message = await ctx.send(string)
@@ -361,7 +373,7 @@ async def take_picks():
         return
     current_time = datetime.now()
     fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
-    if current_time > fight_start_time:
+    if current_time >= fight_start_time:
         card_title = card_details['title']
         message_ids = card_details['pick_messages']
         ctx = await client.fetch_channel(CHANNEL)
@@ -386,6 +398,8 @@ async def take_picks():
         ctx = await client.fetch_channel(CHANNEL)
         embed=Embed(title="picks taken", description="enjoy the fights")
         await ctx.send(embed=embed)
+        sleep(121)
+        await ctx.send(file=File(screenshot(html), 'picks.png'))
         take_picks.stop()
         detect_change.start()
         print(f'\n{"transitioning to detect_change"}\n')
@@ -440,7 +454,7 @@ def get_winner_loser(card_details, fight_results):
         update_is_correct("TRUE", card_details['title'], loser)
         update_is_correct("TRUE", card_details['title'], winner)
         decision_type = "no contest"
-    return decision_type,winner,loser
+    return decision_type, winner, loser
 
 
 @client.command()
@@ -451,7 +465,7 @@ async def leaderboard(ctx, arg=None):
         embed=Embed(title=f"Stats for {ctx.author}")
         embed.add_field(name=f"**{my_stats['username']}**", value=f"> Wins: {my_stats['wins']}\n> Goofs: {my_stats['goofs']}\n> Correct picks: {correct_picks[0]}",inline=False)
         await ctx.send(embed=embed)
-    else:
+    elif not arg:
         leaderboard = query_db("select username, wins from users order by wins desc limit 10")    
         embed=Embed(title="UFC picks leaderboard")
         for leader in leaderboard:
@@ -462,37 +476,20 @@ async def leaderboard(ctx, arg=None):
 # TODO commands for seeing the ladderboard, number of correct picks
 client.run(token)
 
-# def split_list(l):
-#     random_number = random.randrange(len(l))
-#     random.shuffle(l)
-#     return l[random_number:], l[:random_number]
 
-# listicular_cannibis = []
-# for i in range(50):
-#     listicular_cannibis.append(f"user{i}")
+# def insert_dummy_data():
+#     card_details = get_card_details()
+#     bouts = get_bouts("vs.", card_details['wiki_title'])
+#     users = [f"user{i}" for i in range(50)]        
+#     for bout in bouts:
+#         fighter1, fighter2 = bout.split(" vs. ")
+#         fighter1, fighter2 = fighter1.strip(), fighter2.strip()
+#         a, b = split_list(users)
+#         insert_picks(card_details['title'], bout, a)
+#         insert_picks(card_details['title'], bout, b)
 
-# a, b = split_list(listicular_cannibis)
-# insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Leon Edwards vs. Belal Muhammad", a, "Leon Edwards")
-# insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Leon Edwards vs. Belal Muhammad", b, "Belal Muhammad")
 
-# a, b = split_list(listicular_cannibis)
-# insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Misha Cirkunov vs. Ryan Spann", a, "Misha Cirkunov")
-# insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Misha Cirkunov vs. Ryan Spann", b, "Ryan Spann")
-
-# a, b = split_list(listicular_cannibis)
-# insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Dan Ige vs. Gavin Tucker", a, "Gavin Tucker")
-# insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Dan Ige vs. Gavin Tucker", b, "Dan Ige")
-
-# a, b = split_list(listicular_cannibis)
-# insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Jonathan Martinez vs. Davey Grant", a, "Davey Grant")
-# insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Jonathan Martinez vs. Davey Grant", b, "Jonathan Martinez")
-
-# a, b = split_list(listicular_cannibis)
-# insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Matheus Nicolau vs. Manel Kape", a, "Manel Kape")
-# insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Matheus Nicolau vs. Manel Kape", b, "Matheus Nicolau")
-
-# a, b = split_list(listicular_cannibis)
-# insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Eryk Anders vs. Darren Stewart", a, "Darren Stewart")
-# insert_picks("UFC Fight Night: Edwards vs. Muhammad", "Eryk Anders vs. Darren Stewart", b, "Eryk Anders")
-
-# print(make_html_table("UFC Fight Night: Edwards vs. Muhammad"))
+# def split_list(users):
+#     random_number = random.randrange(len(users))
+#     random.shuffle(users)
+#     return users[random_number:], users[:random_number]
