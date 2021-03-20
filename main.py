@@ -473,23 +473,27 @@ async def leaderboard(ctx, arg=None):
         await ctx.send(embed=embed)
 
 
+
+
+
+def insert_dummy_data(n):
+    card_details = get_card_details()
+    bouts = get_bouts("vs.", card_details['wiki_title'])
+    users = [f"user{i}" for i in range(n)]        
+    for bout in bouts:
+        fighter1, fighter2 = bout.split(" vs. ")
+        fighter1, fighter2 = fighter1.strip(), fighter2.strip()
+        a, b = split_list(users)
+        insert_picks(card_details['title'], bout, a, fighter1)
+        insert_picks(card_details['title'], bout, b, fighter2)
+
+
+def split_list(users):
+    random_number = random.randrange(len(users))
+    random.shuffle(users)
+    return users[random_number:], users[:random_number]
+
+insert_dummy_data(20)
+
 # TODO commands for seeing the ladderboard, number of correct picks
 client.run(token)
-
-
-# def insert_dummy_data():
-#     card_details = get_card_details()
-#     bouts = get_bouts("vs.", card_details['wiki_title'])
-#     users = [f"user{i}" for i in range(50)]        
-#     for bout in bouts:
-#         fighter1, fighter2 = bout.split(" vs. ")
-#         fighter1, fighter2 = fighter1.strip(), fighter2.strip()
-#         a, b = split_list(users)
-#         insert_picks(card_details['title'], bout, a)
-#         insert_picks(card_details['title'], bout, b)
-
-
-# def split_list(users):
-#     random_number = random.randrange(len(users))
-#     random.shuffle(users)
-#     return users[random_number:], users[:random_number]
