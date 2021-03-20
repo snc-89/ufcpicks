@@ -241,7 +241,7 @@ def make_html_table(card_title):
 </div>
 <div class="row">
   <div class="col-md-8" align="center">
-{pd.DataFrame(foobar)[bout_order].fillna('Blank').T.to_html()}
+{pd.DataFrame(foobar).fillna('Blank').T[bout_order].to_html()}
   </div>
   <div class="col-md-2" align="center">
       <img id="winners_image" src="">
@@ -493,3 +493,5 @@ async def leaderboard(ctx, arg=None):
 
 # TODO commands for seeing the ladderboard, number of correct picks
 client.run(token)
+
+# print(make_html_table('UFC on ESPN: Brunson vs. Holland'))
