@@ -18,6 +18,7 @@ from time import sleep
 
 client = commands.Bot(command_prefix='$')
 token = os.environ['DISCORD_TOKEN']
+print(f"\n{token}\n")
 
 CHANNEL = None
 DATABASE_URL = None
@@ -503,4 +504,4 @@ async def detect_change():
 # insert_dummy_data(20)
 
 # TODO commands for seeing the ladderboard, number of correct picks
-client.run(token)
+# client.run(token)
