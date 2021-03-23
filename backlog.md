@@ -13,3 +13,15 @@
     - rtansition to next state
 - listen til the start of the card
     - check wikipedia for w
+
+- get the date time of the card properly
+    - probably use tapology to get the correct time with beautiful soup
+- werite tests for everything
+- make the html look good
+- make it so the results lists are callable with a command
+- make it guild agnostic
+- make a html page for when the card is over
+
+- make it general to each discord server the bot is on
+
+- fix it so it updates if fights fall out

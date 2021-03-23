@@ -17,8 +17,7 @@ from time import sleep
 
 
 client = commands.Bot(command_prefix='$')
-with open('token.txt', 'r') as f:
-    token = f.read()
+token = os.environ['DISCORD_TOKEN']
 
 CHANNEL = None
 DATABASE_URL = None
@@ -56,6 +55,19 @@ with conn.cursor() as cursor:
             pick varchar,
             is_correct boolean,
             unique(username, card, bout)
+        );
+    """)
+    cursor.execute("""
+        CREATE table if not exists information(
+            id serial PRIMARY KEY,
+            title varchar,
+            wiki_title varchar,
+            num_fights varchar,
+            fights_ended varchar,
+            start_time varchar,
+            current_state varchar,
+            pick_messages varchar,
+            html varchar
         );
     """)
 conn.commit()
@@ -101,7 +113,7 @@ def get_bouts(vs_or_def, card_title):
         if match.endswith("No Contest"):
             match = match.replace(" No Contest", "").replace("vs.", "No Contest")
         match = re.sub("[a-zA-Z\u0080-\uFFFF]+ \(fighter\)[a-zA-Z\u0080-\uFFFF]+ ","",match)
-        match = re.sub("\s+", " ", match)
+        match = re.sub("\s+", " ", match).strip()
         clean_matches.append(match)
     return clean_matches
 
@@ -139,7 +151,6 @@ def get_current_card():
     card_title = card_details['title']
     date = str(get_timestamp_from_tapology(card_title))
     bouts = get_bouts("vs.", card_title.replace(' ', '_'))
-
     card_json = {
         'title': card_title,
         'wiki_title': card_title.replace(' ', '_'),
@@ -216,17 +227,15 @@ def insert_picks(card_title, bout, users, fighter):
                 do nothing""", (str(user), card_title, bout, fighter))
 
 
-def make_html_table(card_title):
-    data = query_db("select username, pick, bout from picks where card = %s;", (card_title,))
-    foobar = {}
+def make_html_table(card_title, data):
+    fight_table = {}
     for row in data:
-        if row['username'] not in foobar:
-            foobar[row['username']] = {}
-        foobar[row['username']][row['bout']] = row['pick']
+        if row['username'] not in fight_table:
+            fight_table[row['username']] = {}
+        fight_table[row['username']][row['bout']] = row['pick']
 
     bout_order = get_bouts("vs.", card_title)
     bout_order.reverse()
-
     html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -241,7 +250,7 @@ def make_html_table(card_title):
 </div>
 <div class="row">
   <div class="col-md-8" align="center">
-{pd.DataFrame(foobar).fillna('Blank').T[bout_order].to_html()}
+{pd.DataFrame(fight_table).fillna('Blank').T[bout_order].to_html()}
   </div>
   <div class="col-md-2" align="center">
       <img id="winners_image" src="">
@@ -257,6 +266,31 @@ def make_html_table(card_title):
 </body>
 </html>"""
     html = re.sub("\"dataframe\"", "'table'", html)
+    return html
+
+
+def update_html(winner, loser, html, winners, losers, decision_type):
+    goofs = '<br>'.join(losers)
+    goofs = f"<h5>LOSERS</h5>{goofs}"
+    heemsters = '<br>'.join(winners)
+    heemsters = f"<h5>Still in the game</h5>{heemsters}"
+    if decision_type == "normal":
+        html = re.sub(f"<td>{loser}</td>", f"<td class='bg-danger'>{loser}</td>", html)
+        html = re.sub(f"<td>{winner}</td>", f"<td class='bg-success'>{winner}</td>", html)
+    elif decision_type == "draw":
+        html = re.sub(f"<td>{loser}</td>", f"<td class='bg-danger'>{loser}</td>", html)
+        html = re.sub(f"<td>{winner}</td>", f"<td class='bg-danger'>{winner}</td>", html)
+    elif decision_type == "no contest":
+        html = re.sub(f"<td>{loser}</td>", f"<td class='bg-success'>{loser}</td>", html)
+        html = re.sub(f"<td>{winner}</td>", f"<td class='bg-success'>{winner}</td>", html)
+    good_image = random.choice(os.listdir("files/good"))
+    good_image = f"files/good/{good_image}"
+    bad_image = random.choice(os.listdir("files/bad"))
+    bad_image = f"files/bad/{bad_image}"
+    html = re.sub('<img id="winners_image" src=".*">', f'<img id="winners_image" src="{good_image}">', html)
+    html = re.sub('<img id="losers_image" src=".*">', f'<img id="losers_image" src="{bad_image}">', html)    
+    html = re.sub('<span id="losers">.*</span>', f'<span id="losers">{goofs}</span>', html)
+    html = re.sub('<span id="winners">.*</span>', f'<span id="losers">{heemsters}</span>', html)
     return html
 
 
@@ -285,33 +319,6 @@ def update_information(card_details):
         where id = 1""", card_details)
 
 
-def update_html(winner, loser, html, winners, losers, decision_type):
-    goofs = '<br>'.join(losers)
-    goofs = f"<h5>LOSERS</h5>{goofs}"
-    heemsters = '<br>'.join(winners)
-    heemsters = f"<h5>Still in the game</h5>{heemsters}"
-    if decision_type == "normal":
-        html = re.sub(f"<td>{loser}</td>", f"<td class='bg-danger'>{loser}</td>", html)
-        html = re.sub(f"<td>{winner}</td>", f"<td class='bg-success'>{winner}</td>", html)
-    elif decision_type == "draw":
-        html = re.sub(f"<td>{loser}</td>", f"<td class='bg-danger'>{loser}</td>", html)
-        html = re.sub(f"<td>{winner}</td>", f"<td class='bg-danger'>{winner}</td>", html)
-    elif decision_type == "no contest":
-        html = re.sub(f"<td>{loser}</td>", f"<td class='bg-success'>{loser}</td>", html)
-        html = re.sub(f"<td>{winner}</td>", f"<td class='bg-success'>{winner}</td>", html)
-
-    good_image = random.choice(os.listdir("files/good"))
-    good_image = f"files/good/{good_image}"
-    bad_image = random.choice(os.listdir("files/bad"))
-    bad_image = f"files/bad/{bad_image}"
-    html = re.sub('<img id="winners_image" src=".*">', f'<img id="winners_image" src="{good_image}">', html)
-    html = re.sub('<img id="losers_image" src=".*">', f'<img id="losers_image" src="{bad_image}">', html)    
-    html = re.sub('<span id="losers">.*</span>', goofs, html)
-    html = re.sub('<span id="winners">.*</span>', heemsters, html)
-    update_column("html", html)
-    return html
-
-
 def update_is_correct(truth_value, title, fighter):
     query_db(f"""update picks
         set is_correct = {truth_value}
@@ -327,112 +334,6 @@ def get_winners_and_losers(card_title, fights_ended):
     losers = list(all_users - winners)
     winners = list(winners)
     return winners, losers
-
-
-@tasks.loop(seconds=43200)
-async def opening_post():
-    print(f"{datetime.now()}    opening_post")
-    card_details = get_card_details()
-    if card_details['current_state'] != "opening_post":
-        opening_post.stop()
-        take_picks.start()
-        return
-    current_card = get_current_card()
-    update_information(current_card)
-    current_time = datetime.now()
-    fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
-    if current_time >= (fight_start_time - timedelta(hours=48)):
-        ctx = await client.fetch_channel(CHANNEL)
-        card_title = card_details['title']
-        bouts = get_bouts("vs.", card_details['wiki_title'])
-        embed=Embed(title=f"UFC PICKS: {card_title}", description="react to the following messages with :one: to pick the first fighter, and react with :two: to pick the second fighter. you have until the prelims start to get your picks in. picks are not final until then. if you select both, your pick will be void.")
-        await ctx.send(embed=embed)
-        card_details['pick_messages'] = []
-        for bout in bouts:
-            sleep(121)
-            fighter1, fighter2 = bout.split(" vs. ")
-            string = f":one: {fighter1.strip()} vs. {fighter2.strip()} :two:"
-            message = await ctx.send(string)
-            await message.add_reaction('1️⃣')
-            await message.add_reaction('2️⃣')
-            card_details['pick_messages'].append(message.id)
-        update_column("pick_messages", card_details['pick_messages'])
-        update_column("current_state", "take_picks")
-        opening_post.stop()
-        take_picks.start()
-        print("\ntransitioning to take_picks\n")
-
-
-@tasks.loop(seconds=3600)
-async def take_picks():
-    print(f"{datetime.now()}    take_picks")
-    card_details = get_card_details()
-    if card_details['current_state'] != "take_picks":
-        take_picks.stop()
-        detect_change.start()
-        return
-    current_time = datetime.now()
-    fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
-    if current_time >= fight_start_time:
-        card_title = card_details['title']
-        message_ids = card_details['pick_messages']
-        ctx = await client.fetch_channel(CHANNEL)
-        for message_id in message_ids:    
-            message = await ctx.fetch_message(int(message_id))
-            bout = message.content[5:-5].strip()
-            fighter1, fighter2 = bout.split(" vs. ")
-            fighter1, fighter2 = fighter1.strip(), fighter2.strip()
-            for reaction in message.reactions:
-                if reaction.emoji == '1️⃣':
-                    one_react_users = list(await reaction.users().flatten())
-                elif reaction.emoji == '2️⃣':
-                    two_react_users = list(await reaction.users().flatten())
-            in_both_lists = set(one_react_users) & set(two_react_users)
-            one_react_users = list(set(one_react_users) - in_both_lists)
-            two_react_users = list(set(two_react_users) - in_both_lists)
-            insert_picks(card_title, bout, one_react_users, fighter1)
-            insert_picks(card_title, bout, two_react_users, fighter2)
-        html = make_html_table(card_details['title'])
-        update_column("html", html)
-        update_column("current_state", "detect_change")
-        ctx = await client.fetch_channel(CHANNEL)
-        embed=Embed(title="picks taken", description="enjoy the fights")
-        await ctx.send(embed=embed)
-        sleep(121)
-        await ctx.send(file=File(screenshot(html), 'picks.png'))
-        take_picks.stop()
-        detect_change.start()
-        print(f'\n{"transitioning to detect_change"}\n')
-
-
-@tasks.loop(seconds=300)
-async def detect_change():
-    print(f"{datetime.now()}    detect change")
-    card_details = get_card_details()
-    if card_details['current_state'] != "detect_change":
-        detect_change.stop()
-        opening_post.start()
-        return
-    fight_results = get_bouts("def.", card_details['wiki_title'])
-    if len(fight_results) > card_details['fights_ended']:
-        channel = await client.fetch_channel(CHANNEL)
-        card_details['fights_ended'] += 1
-        update_column("fights_ended", card_details['fights_ended'])
-        decision_type, winner, loser = get_winner_loser(card_details, fight_results)
-        winners, losers = get_winners_and_losers(card_details['title'], card_details['fights_ended'])
-        if card_details['fights_ended'] == card_details['num_fights']:    # if the card is over
-            next_card = get_next_card(card_details['wiki_title'])
-            for w in winners:
-                query_db("update users set wins = wins+1 where username = %s", (w,))
-            for l in losers:    
-                query_db("update users set goofs = goofs+1 where username = %s", (l,))
-            update_information(next_card)
-            print("\ntransitioning to opening post\n")
-            detect_change.stop()
-            opening_post.start()
-            await leaderboard(channel)
-        html = update_html(winner, loser, card_details['html'], winners, losers, decision_type)
-        await channel.send(file=File(screenshot(html), 'results.png'))
 
 
 def get_winner_loser(card_details, fight_results):
@@ -472,6 +373,116 @@ async def leaderboard(ctx, arg=None):
             embed.add_field(name=f"**{leader['username']}**", value=f"> Wins: {leader['wins']}",inline=False)
         await ctx.send(embed=embed)
 
+
+@tasks.loop(seconds=43200)
+async def opening_post():
+    print(f"{datetime.now()}    opening_post")
+    card_details = get_card_details()
+    if card_details['current_state'] != "opening_post":
+        opening_post.stop()
+        take_picks.start()
+        return
+    current_card = get_current_card()
+    update_information(current_card)
+    current_time = datetime.now()
+    fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
+    if current_time >= (fight_start_time - timedelta(hours=48)):
+        ctx = await client.fetch_channel(CHANNEL)
+        card_title = card_details['title']
+        bouts = get_bouts("vs.", card_details['wiki_title'])
+        embed=Embed(title=f"UFC PICKS: {card_title}", description="react to the following messages with :one: to pick the first fighter, and react with :two: to pick the second fighter. you have until the prelims start to get your picks in. picks are not final until then. if you select both, your pick will be void.")
+        await ctx.send(embed=embed)
+        card_details['pick_messages'] = []
+        for bout in bouts:
+            sleep(121)
+            message = await ctx.send(bout)
+            await message.add_reaction('1️⃣')
+            await message.add_reaction('2️⃣')
+            card_details['pick_messages'].append(message.id)
+        update_column("pick_messages", card_details['pick_messages'])
+        update_column("current_state", "take_picks")
+        opening_post.stop()
+        take_picks.start()
+        print("\ntransitioning to take_picks\n")
+
+
+@tasks.loop(seconds=3600)
+async def take_picks():
+    print(f"{datetime.now()}    take_picks")
+    card_details = get_card_details()
+    if card_details['current_state'] != "take_picks":
+        take_picks.stop()
+        detect_change.start()
+        return
+    current_time = datetime.now()
+    # bouts = get_bouts("vs.", card_details['wiki_title'])
+    # if card_details['num_fights'] != len(bouts):
+    #     for i, bout in enumerate(bouts):
+    #         if bout not in 
+    fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
+    if current_time >= fight_start_time:
+        card_title = card_details['title']
+        message_ids = card_details['pick_messages']
+        ctx = await client.fetch_channel(CHANNEL)
+        for message_id in message_ids:    
+            message = await ctx.fetch_message(int(message_id))
+            bout = message.content.strip()
+            fighter1, fighter2 = bout.split(" vs. ")
+            fighter1, fighter2 = fighter1.strip(), fighter2.strip()
+            for reaction in message.reactions:
+                if reaction.emoji == '1️⃣':
+                    one_react_users = list(await reaction.users().flatten())
+                elif reaction.emoji == '2️⃣':
+                    two_react_users = list(await reaction.users().flatten())
+            in_both_lists = set(one_react_users) & set(two_react_users)
+            one_react_users = list(set(one_react_users) - in_both_lists)
+            two_react_users = list(set(two_react_users) - in_both_lists)
+            insert_picks(card_title, bout, one_react_users, fighter1)
+            insert_picks(card_title, bout, two_react_users, fighter2)
+        data = query_db("select username, pick, bout from picks where card = %s;", (card_title,))
+        html = make_html_table(card_details['title'], data)
+        update_column("html", html)
+        update_column("current_state", "detect_change")
+        ctx = await client.fetch_channel(CHANNEL)
+        embed=Embed(title="picks taken", description="enjoy the fights")
+        await ctx.send(embed=embed)
+        sleep(121)
+        await ctx.send(file=File(screenshot(html), 'picks.png'))
+        take_picks.stop()
+        detect_change.start()
+        print(f'\n{"transitioning to detect_change"}\n')
+
+
+@tasks.loop(seconds=300)
+async def detect_change():
+    print(f"{datetime.now()}    detect change")
+    card_details = get_card_details()
+    if card_details['current_state'] != "detect_change":
+        detect_change.stop()
+        opening_post.start()
+        return
+    fight_results = get_bouts("def.", card_details['wiki_title'])
+    if len(fight_results) > card_details['fights_ended']:
+        channel = await client.fetch_channel(CHANNEL)
+        card_details['fights_ended'] += 1
+        update_column("fights_ended", card_details['fights_ended'])
+        decision_type, winner, loser = get_winner_loser(card_details, fight_results)
+        winners, losers = get_winners_and_losers(card_details['title'], card_details['fights_ended'])
+        if card_details['fights_ended'] == card_details['num_fights']:    # if the card is over
+            next_card = get_next_card(card_details['wiki_title'])
+            for w in winners:
+                query_db("update users set wins = wins+1 where username = %s", (w,))
+            for l in losers:    
+                query_db("update users set goofs = goofs+1 where username = %s", (l,))
+            update_information(next_card)
+            print("\ntransitioning to opening post\n")
+            detect_change.stop()
+            opening_post.start()
+            await leaderboard(channel)
+        html = update_html(winner, loser, card_details['html'], winners, losers, decision_type)
+        update_column("html", html)
+        await channel.send(file=File(screenshot(html), 'results.png'))
+
 # def insert_dummy_data(n):
 #     card_details = get_card_details()
 #     bouts = get_bouts("vs.", card_details['wiki_title'])
@@ -493,5 +504,3 @@ async def leaderboard(ctx, arg=None):
 
 # TODO commands for seeing the ladderboard, number of correct picks
 client.run(token)
-
-# print(make_html_table('UFC on ESPN: Brunson vs. Holland'))
