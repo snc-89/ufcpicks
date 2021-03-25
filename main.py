@@ -24,7 +24,7 @@ DATABASE_URL = None
 try:
     DATABASE_URL = os.environ['DATABASE_URL']
     connection = pool.SimpleConnectionPool(1,20, DATABASE_URL, sslmode='require')
-    CHANNEL = 813751690515185685
+    CHANNEL = 555820451385966602
 except KeyError:
     params = {
         'database':'heem_picks',
