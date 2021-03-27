@@ -77,6 +77,10 @@ connection.putconn(conn)
 async def on_ready():
     opening_post.start()
     print(f'{client.user} has logged in')
+    channel = client.get_channel(555820451385966602)
+    message = await channel.fetch_message(824774003776159764)
+    await message.edit(content="Sean O'Malley vs. Thomas Almeida")
+
 
 
 def query_db(query, params=None):
@@ -112,7 +116,7 @@ def get_bouts(vs_or_def, card_title):
             match = match.replace(" Draw", "").replace("vs.", "Draw")
         if match.endswith("No Contest"):
             match = match.replace(" No Contest", "").replace("vs.", "No Contest")
-        match = re.sub("[a-zA-Z\u0080-\uFFFF]+ \(fighter\)[a-zA-Z\u0080-\uFFFF]+ ","",match)
+        match = re.sub("[a-zA-Z\u0080-\uFFFF']+ \(fighter\)[a-zA-Z\u0080-\uFFFF']+ ","",match)
         match = re.sub("\s+", " ", match).strip()
         clean_matches.append(match)
     return clean_matches
@@ -186,7 +190,7 @@ def get_next_card(last_card_title):
 
 
 def screenshot(html_content):
-    if os.environ['HOME'] != '/home/simon':
+    if os.environ['HOME'] == '/app':
         GOOGLE_CHROME_PATH = '/app/.apt/usr/bin/google-chrome'
         CHROMEDRIVER_PATH = '/app/.chromedriver/bin/chromedriver'
     else:
@@ -500,7 +504,14 @@ async def detect_change():
 #     random.shuffle(users)
 #     return users[random_number:], users[:random_number]
 
-# insert_dummy_data(20)
+# insert_dummy_data(30)
 
 # TODO commands for seeing the ladderboard, number of correct picks
+
+# print(get_raw_text('UFC_260'))
+# print(get_bouts('vs.','UFC_260'))
+
+
+
+
 client.run(token)
