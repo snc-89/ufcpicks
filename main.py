@@ -77,10 +77,6 @@ connection.putconn(conn)
 async def on_ready():
     opening_post.start()
     print(f'{client.user} has logged in')
-    channel = client.get_channel(555820451385966602)
-    message = await channel.fetch_message(824774003776159764)
-    await message.edit(content="Sean O'Malley vs. Thomas Almeida")
-
 
 
 def query_db(query, params=None):
