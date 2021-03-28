@@ -296,7 +296,7 @@ async def on_ready():
 </div>
 </body>
 </html>
-    """))
+    """, ))
 
 
 def query_db(query, params=None):
