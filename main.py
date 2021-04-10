@@ -113,9 +113,11 @@ def get_bouts(vs_or_def, card_title):
         if match.endswith("No Contest"):
             match = match.replace(" No Contest", "").replace("vs.", "No Contest")
         match = re.sub("[a-zA-Z\u0080-\uFFFF']+ \(fighter\)[a-zA-Z\u0080-\uFFFF']+ ","",match)
+        match = match.replace('Nina Nunes',"")
         match = re.sub("\s+", " ", match).strip()
         clean_matches.append(match)
     return clean_matches
+
 
 
 def get_raw_text(card_title):
@@ -145,6 +147,8 @@ def get_timestamp_from_tapology(card_title):
     timestamp = datetime.strptime(timestamp[:-3], "%A %m.%d.%Y at %I:%M %p")
     return timestamp + timedelta(hours=16)
 
+print(get_bouts("vs.",'UFC_on_ABC:_Vettori_vs._Holland'))
+
 
 def get_current_card():
     card_details = get_card_details()
@@ -159,7 +163,7 @@ def get_current_card():
         'fights_ended': 0,
         "html": "",
         "pick_messages": "",
-        "current_state": "opening_post" 
+        "current_state": "opening_post"
     }
     return card_json
 
@@ -180,7 +184,7 @@ def get_next_card(last_card_title):
         'fights_ended': 0,
         "html": "",
         "pick_messages": "",
-        "current_state": "opening_post" 
+        "current_state": "opening_post"
     }
     return card_json
 
@@ -216,7 +220,7 @@ def get_card_details():
     if card_details['pick_messages']:
         card_details['pick_messages'] = [int(x) for x in card_details['pick_messages'].split()]
     return card_details
-        
+
 
 def insert_picks(card_title, bout, users, fighter):
     for user in users:
@@ -245,7 +249,7 @@ def make_html_table(card_title, data):
 </head>
 <body>
 <div class="jumbotron" style="text-align: center;">
-  <h1>UFC PICKS</h1>      
+  <h1>UFC PICKS</h1>
   <h3>{card_title}</h3>
 </div>
 <div class="row">
@@ -256,7 +260,7 @@ def make_html_table(card_title, data):
       <img id="winners_image" src="">
       <br>
       <span id="winners"></span>
-  </div>  
+  </div>
   <div class="col-md-2" align="center">
       <img id="losers_image" src="">
       <br>
@@ -288,7 +292,7 @@ def update_html(winner, loser, html, winners, losers, decision_type):
     bad_image = random.choice(os.listdir("files/bad"))
     bad_image = f"files/bad/{bad_image}"
     html = re.sub('<img id="winners_image" src=".*">', f'<img id="winners_image" src="{good_image}">', html)
-    html = re.sub('<img id="losers_image" src=".*">', f'<img id="losers_image" src="{bad_image}">', html)    
+    html = re.sub('<img id="losers_image" src=".*">', f'<img id="losers_image" src="{bad_image}">', html)
     html = re.sub('<span id="losers">.*</span>', f'<span id="losers">{goofs}</span>', html)
     html = re.sub('<span id="winners">.*</span>', f'<span id="winners">{heemsters}</span>', html)
     return html
@@ -300,7 +304,7 @@ def update_column(column, value):
     sql = f"""
             update information
             set {column} = %s
-            where id = 1    
+            where id = 1
         """
     query_db(sql, (value,))
 
@@ -367,7 +371,7 @@ async def leaderboard(ctx, arg=None):
         embed.add_field(name=f"**{my_stats['username']}**", value=f"> Wins: {my_stats['wins']}\n> Goofs: {my_stats['goofs']}\n> Correct picks: {correct_picks[0]}",inline=False)
         await ctx.send(embed=embed)
     elif not arg:
-        leaderboard = query_db("select username, wins from users order by wins desc limit 10")    
+        leaderboard = query_db("select username, wins from users order by wins desc limit 10")
         embed=Embed(title="UFC picks leaderboard")
         for leader in leaderboard:
             embed.add_field(name=f"**{leader['username']}**", value=f"> Wins: {leader['wins']}",inline=False)
@@ -418,7 +422,7 @@ async def take_picks():
     # bouts = get_bouts("vs.", card_details['wiki_title'])
     # if card_details['num_fights'] != len(bouts):
     #     for i, bout in enumerate(bouts):
-    #         if bout not in 
+    #         if bout not in
     fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
     if current_time >= fight_start_time:
         card_title = card_details['title']
@@ -472,7 +476,7 @@ async def detect_change():
             next_card = get_next_card(card_details['wiki_title'])
             for w in winners:
                 query_db("update users set wins = wins+1 where username = %s", (w,))
-            for l in losers:    
+            for l in losers:
                 query_db("update users set goofs = goofs+1 where username = %s", (l,))
             update_information(next_card)
             print("\ntransitioning to opening post\n")
@@ -486,7 +490,7 @@ async def detect_change():
 # def insert_dummy_data(n):
 #     card_details = get_card_details()
 #     bouts = get_bouts("vs.", card_details['wiki_title'])
-#     users = [f"user{i}" for i in range(n)]        
+#     users = [f"user{i}" for i in range(n)]
 #     for bout in bouts:
 #         fighter1, fighter2 = bout.split(" vs. ")
 #         fighter1, fighter2 = fighter1.strip(), fighter2.strip()
