@@ -14,28 +14,15 @@ import requests
 from bs4 import BeautifulSoup
 import random
 from time import sleep
+import json
 
 
 client = commands.Bot(command_prefix='$')
 token = os.environ['DISCORD_TOKEN']
 
-CHANNEL = None
-DATABASE_URL = None
-try:
-    DATABASE_URL = os.environ['DATABASE_URL']
-    connection = pool.SimpleConnectionPool(1,20, DATABASE_URL, sslmode='require')
-    CHANNEL = 555820451385966602
-except KeyError:
-    params = {
-        'database':'heem_picks',
-        'host':'localhost',
-        'user':'postgres',
-        'password':'abc'
-    }
-    connection = pool.SimpleConnectionPool(1,20, **params)
-    CHANNEL = 811176962172649472
-
-
+DATABASE_URL = os.environ['DATABASE_URL']
+connection = pool.SimpleConnectionPool(1,20, DATABASE_URL)
+CHANNEL = 555820451385966602
 conn = connection.getconn()
 with conn.cursor() as cursor:
     cursor.execute("""
@@ -57,19 +44,7 @@ with conn.cursor() as cursor:
             unique(username, card, bout)
         );
     """)
-    cursor.execute("""
-        CREATE table if not exists information(
-            id serial PRIMARY KEY,
-            title varchar,
-            wiki_title varchar,
-            num_fights varchar,
-            fights_ended varchar,
-            start_time varchar,
-            current_state varchar,
-            pick_messages varchar,
-            html varchar
-        );
-    """)
+
 conn.commit()
 connection.putconn(conn)
 
@@ -113,7 +88,6 @@ def get_bouts(vs_or_def, card_title):
         if match.endswith("No Contest"):
             match = match.replace(" No Contest", "").replace("vs.", "No Contest")
         match = re.sub("[a-zA-Z\u0080-\uFFFF']+ \(fighter\)[a-zA-Z\u0080-\uFFFF']+ ","",match)
-        match = match.replace('Nina Nunes',"")
         match = re.sub("\s+", " ", match).strip()
         clean_matches.append(match)
     return clean_matches
@@ -147,8 +121,6 @@ def get_timestamp_from_tapology(card_title):
     timestamp = datetime.strptime(timestamp[:-3], "%A %m.%d.%Y at %I:%M %p")
     return timestamp + timedelta(hours=16)
 
-print(get_bouts("vs.",'UFC_on_ABC:_Vettori_vs._Holland'))
-
 
 def get_current_card():
     card_details = get_card_details()
@@ -161,7 +133,6 @@ def get_current_card():
         'num_fights': len(bouts),
         'start_time': date,
         'fights_ended': 0,
-        "html": "",
         "pick_messages": "",
         "current_state": "opening_post"
     }
@@ -182,7 +153,6 @@ def get_next_card(last_card_title):
         'num_fights': len(bouts),
         'start_time': date,
         'fights_ended': 0,
-        "html": "",
         "pick_messages": "",
         "current_state": "opening_post"
     }
@@ -190,12 +160,6 @@ def get_next_card(last_card_title):
 
 
 def screenshot(html_content):
-    if os.environ['HOME'] == '/app':
-        GOOGLE_CHROME_PATH = '/app/.apt/usr/bin/google-chrome'
-        CHROMEDRIVER_PATH = '/app/.chromedriver/bin/chromedriver'
-    else:
-        GOOGLE_CHROME_PATH = '/usr/bin/google-chrome'
-        CHROMEDRIVER_PATH = '/usr/bin/chromedriver'
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--disable-gpu')
@@ -204,8 +168,7 @@ def screenshot(html_content):
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-browser-side-navigation")
     options.add_argument("--disable-features=VizDisplayCompositor")
-    options.binary_location = GOOGLE_CHROME_PATH
-    browser = webdriver.Chrome(options=options, executable_path=CHROMEDRIVER_PATH)
+    browser = webdriver.Chrome(options=options)
     browser.set_window_size(1920,1080)
     html_content = base64.b64encode(html_content.encode('utf-8')).decode()
     browser.get(f"data:text/html;base64,{html_content}")
@@ -216,9 +179,8 @@ def screenshot(html_content):
 
 
 def get_card_details():
-    card_details = query_db("select * from information where id = 1 limit 1;")[0]
-    if card_details['pick_messages']:
-        card_details['pick_messages'] = [int(x) for x in card_details['pick_messages'].split()]
+    with open('information.json', 'r') as f:
+        card_details = json.load(f)
     return card_details
 
 
@@ -299,28 +261,16 @@ def update_html(winner, loser, html, winners, losers, decision_type):
 
 
 def update_column(column, value):
-    if column == "pick_messages":
-        value = ' '.join(str(e) for e in value)
-    sql = f"""
-            update information
-            set {column} = %s
-            where id = 1
-        """
-    query_db(sql, (value,))
+    with open('information.json', 'r') as f:
+        information = json.load(f)
+    information[column] = value
+    with open('information.json', 'w') as f:
+        json.dump(information, f)
 
 
 def update_information(card_details):
-    query_db("""update information
-        set
-            title = %(title)s,
-            wiki_title = %(wiki_title)s,
-            num_fights = %(num_fights)s,
-            fights_ended = %(fights_ended)s,
-            start_time = %(start_time)s,
-            current_state = %(current_state)s,
-            pick_messages = %(pick_messages)s,
-            html = %(html)s
-        where id = 1""", card_details)
+    with open('information.json', 'w') as f:
+        json.dump(card_details, f)
 
 
 def update_is_correct(truth_value, title, fighter):
@@ -380,14 +330,14 @@ async def leaderboard(ctx, arg=None):
 
 @tasks.loop(seconds=43200)
 async def opening_post():
-    print(f"{datetime.now()}    opening_post")
+    print(f"opening_post")
     card_details = get_card_details()
     if card_details['current_state'] != "opening_post":
         opening_post.stop()
         take_picks.start()
         return
-    current_card = get_current_card()
-    update_information(current_card)
+    card_details = get_current_card()
+    update_information(card_details)
     current_time = datetime.now()
     fight_start_time = datetime.strptime(card_details['start_time'], "%Y-%m-%d %H:%M:%S")
     if current_time >= (fight_start_time - timedelta(hours=48)):
@@ -412,7 +362,7 @@ async def opening_post():
 
 @tasks.loop(seconds=3600)
 async def take_picks():
-    print(f"{datetime.now()}    take_picks")
+    print(f"take_picks")
     card_details = get_card_details()
     if card_details['current_state'] != "take_picks":
         take_picks.stop()
@@ -445,7 +395,8 @@ async def take_picks():
             insert_picks(card_title, bout, two_react_users, fighter2)
         data = query_db("select username, pick, bout from picks where card = %s;", (card_title,))
         html = make_html_table(card_details['title'], data)
-        update_column("html", html)
+        with open('table.html', 'w') as f:
+            json.dump(html, f)
         update_column("current_state", "detect_change")
         ctx = await client.fetch_channel(CHANNEL)
         embed=Embed(title="picks taken", description="enjoy the fights")
@@ -459,7 +410,7 @@ async def take_picks():
 
 @tasks.loop(seconds=300)
 async def detect_change():
-    print(f"{datetime.now()}    detect change")
+    print(f"detect change")
     card_details = get_card_details()
     if card_details['current_state'] != "detect_change":
         detect_change.stop()
@@ -484,7 +435,8 @@ async def detect_change():
             opening_post.start()
             await leaderboard(channel)
         html = update_html(winner, loser, card_details['html'], winners, losers, decision_type)
-        update_column("html", html)
+        with open('table.html', 'w') as f:
+            json.dump(html, f)
         await channel.send(file=File(screenshot(html), 'results.png'))
 
 # def insert_dummy_data(n):
